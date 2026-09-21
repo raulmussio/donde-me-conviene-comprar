@@ -98,6 +98,16 @@ _RE_CONTEO = re.compile(
     re.IGNORECASE,
 )
 
+# Venta por peso o por unidad sin cantidad: "Banana Cavendish X Kg",
+# "Tomate Redondo Por Kg", "Alcaucil x uni". Equivale a una unidad de esa
+# medida, y tratarlo asi es lo que hace comparables entre si a los frescos: las
+# cadenas publican el mismo producto como "Banana x Kg" o como "Banana 1 Kg", y
+# leerlos distinto los dejaba en grupos separados.
+_RE_POR_MEDIDA = re.compile(
+    r"\b(?:x|por)\s*(?P<uni>kgm|kgs?|kilos?|lts?|l|un|uni|unid|unidad)\b",
+    re.IGNORECASE,
+)
+
 
 def normalizar(texto: str) -> str:
     """Minusculas, sin acentos, sin puntuacion y con espacios colapsados."""
@@ -174,6 +184,11 @@ def parsear_envase(texto: str) -> tuple[float | None, str | None]:
     if conteo:
         crudo = conteo.group("a") or conteo.group("b")
         return _convertir(crudo, "un") or (None, None)
+
+    # Producto vendido por peso o por unidad, sin cantidad en el nombre.
+    por_medida = _RE_POR_MEDIDA.search(plano)
+    if por_medida:
+        return _convertir("1", por_medida.group("uni")) or (None, None)
     return None, None
 
 

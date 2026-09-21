@@ -33,6 +33,16 @@ LOGGER = logging.getLogger(__name__)
 # se mostraba como si fuera comparable.
 TOLERANCIA = 1.2
 
+# Un formato solo compite por ser el elegido si su mejor coincidencia esta a
+# menos de este margen de la mejor de todas. Ver `_opciones`.
+#
+# Es mas estricto que el margen con que se elige el producto dentro de un
+# formato, porque aca se decide que se compara y no cual se compra. Con 0.10,
+# "Banana Chips Dulces San Juanita 100 g" quedaba justo adentro: empieza con la
+# palabra buscada, asi que la senal de posicion no lo separa de la fruta, y solo
+# lo distingue el arrastre de palabras ajenas.
+MARGEN_DE_CALIDAD = 0.08
+
 
 @dataclass(frozen=True)
 class Formato:
@@ -40,20 +50,28 @@ class Formato:
 
     magnitud: float | None
     unidad: str | None
+    # True cuando el formato representa a los productos que **no** declaran
+    # envase. Es distinto de "cualquier envase": es una eleccion deliberada de
+    # comparar lo fresco. Ver `_opciones`.
+    a_granel: bool = False
 
     @property
     def es_libre(self) -> bool:
-        """True cuando no se pudo acordar un tamano y vale cualquiera."""
-        return not self.magnitud or not self.unidad
+        """True cuando no se acordo nada y sirve cualquier envase."""
+        return not self.a_granel and (not self.magnitud or not self.unidad)
 
     @property
     def etiqueta(self) -> str:
+        if self.a_granel:
+            return "fresco, por unidad o peso"
         if self.es_libre:
             return "cualquier envase"
         return formatear_envase(self.magnitud, self.unidad)
 
     def contiene(self, oferta: Oferta) -> bool:
         """True si el envase de la oferta entra en este formato."""
+        if self.a_granel:
+            return oferta.magnitud is None
         if self.es_libre:
             return True
         if not oferta.magnitud or oferta.unidad != self.unidad:
@@ -64,6 +82,12 @@ class Formato:
 
 
 FORMATO_LIBRE = Formato(magnitud=None, unidad=None)
+
+# Los productos frescos no declaran envase: un alcaucil se vende por unidad o
+# por peso y su nombre es solo "Alcaucil". Sin este formato, el consenso solo
+# podia elegir entre los envasados y terminaba comparando corazones de alcaucil
+# en frasco a $18.890 cuando lo que se pidio vale $4.999 en la verduleria.
+FORMATO_A_GRANEL = Formato(magnitud=None, unidad=None, a_granel=True)
 
 
 def del_item(item: ItemLista) -> Formato | None:
@@ -110,14 +134,12 @@ def opciones_ordenadas(
 
 def _opciones(candidatos_por_cadena: dict[str, list[Oferta]]) -> list[Formato]:
     """Formatos candidatos, ordenados por cuantas cadenas los tienen."""
-    con_envase = [
+    todos = [
         (cadena, oferta)
         for cadena, ofertas in candidatos_por_cadena.items()
         for oferta in ofertas
-        if oferta.magnitud and oferta.unidad
     ]
-    if not con_envase:
-        return []
+    con_envase = [par for par in todos if par[1].magnitud and par[1].unidad]
 
     # Cada tamano distinto es un formato candidato. Se agrupan los equivalentes
     # dentro de la tolerancia para no tratar 900 ml y 1 L como dos mundos.
@@ -127,11 +149,27 @@ def _opciones(candidatos_por_cadena: dict[str, list[Oferta]]) -> list[Formato]:
         if not any(_mismo(propuesto, existente) for existente in vistos):
             vistos.append(propuesto)
 
-    puntuados: list[tuple[float, int, float, Formato]] = []
+    # Lo fresco compite como un formato mas: si son mas las cadenas que ofrecen
+    # el producto sin envase que las que lo ofrecen envasado, gana lo fresco.
+    if any(oferta.magnitud is None for _, oferta in todos):
+        vistos.append(FORMATO_A_GRANEL)
+
+    if not vistos:
+        return []
+
+    # Cuantas cadenas tienen un formato decide, pero solo entre los que
+    # realmente representan lo pedido. Sin este filtro la cobertura le ganaba al
+    # producto correcto: pedir "banana" elegia los chips de banana de 100 g,
+    # porque estan en las cinco cadenas, sobre la fruta fresca, que esta en
+    # cuatro.
+    mejor_global = max((oferta.puntaje for _, oferta in todos), default=0.0)
+
+    puntuados: list[tuple[float, float, float, Formato]] = []
+    descartados: list[tuple[float, float, float, Formato]] = []
     for formato in vistos:
         cadenas: set[str] = set()
         puntajes: list[float] = []
-        for cadena, oferta in con_envase:
+        for cadena, oferta in todos:
             if formato.contiene(oferta):
                 cadenas.add(cadena)
                 puntajes.append(oferta.puntaje)
@@ -140,10 +178,22 @@ def _opciones(candidatos_por_cadena: dict[str, list[Oferta]]) -> list[Formato]:
         calidad = sum(puntajes) / len(puntajes) if puntajes else 0.0
         # Orden: mas cadenas primero; a igualdad, mejor calidad de coincidencia;
         # y recien ahi el envase mas grande, que suele ser el formato familiar.
-        puntuados.append((-len(cadenas), -round(calidad, 3), -(formato.magnitud or 0), formato))
+        fila = (
+            -float(len(cadenas)),
+            -round(calidad, 3),
+            -(formato.magnitud or 0),
+            formato,
+        )
+        if max(puntajes, default=0.0) >= mejor_global - MARGEN_DE_CALIDAD:
+            puntuados.append(fila)
+        else:
+            descartados.append(fila)
 
     puntuados.sort(key=lambda fila: fila[:3])
-    return [fila[3] for fila in puntuados]
+    descartados.sort(key=lambda fila: fila[:3])
+    # Los descartados igual se ofrecen al final del selector: son envases reales
+    # y el usuario puede querer justamente ese.
+    return [fila[3] for fila in puntuados] + [fila[3] for fila in descartados]
 
 
 def _mismo(uno: Formato, otro: Formato) -> bool:

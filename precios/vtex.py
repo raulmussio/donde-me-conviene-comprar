@@ -102,9 +102,14 @@ def _a_oferta(producto: dict, *, cadena: str, dominio: str) -> Oferta | None:
 
     # Un producto VTEX agrupa SKUs (sabores, tamanos). Tomamos el mas barato
     # disponible: es el que el usuario veria como precio del producto.
+    # Se busca el mas barato con stock. Si no hay ninguno con stock se conserva
+    # el mas barato sin el, marcado como no disponible: con una zona elegida no
+    # es lo mismo "esta cadena no lo vende" que "en tu zona esta sin stock", y
+    # callarlo hace parecer que la app no encontro el producto.
     mejor_precio: float | None = None
     mejor_articulo: dict | None = None
     mejor_venta: dict | None = None
+    hay_stock = False
 
     for articulo in articulos:
         for vendedor in articulo.get("sellers") or []:
@@ -112,11 +117,19 @@ def _a_oferta(producto: dict, *, cadena: str, dominio: str) -> Oferta | None:
             precio = venta.get("Price")
             if not precio or precio <= 0:
                 continue
-            if not venta.get("IsAvailable", True):
-                continue
-            if venta.get("AvailableQuantity", 0) <= 0:
-                continue
-            if mejor_precio is None or precio < mejor_precio:
+            con_stock = bool(
+                venta.get("IsAvailable", True) and venta.get("AvailableQuantity", 0) > 0
+            )
+            # Una oferta con stock siempre le gana a una sin stock, por barata
+            # que sea la segunda.
+            if con_stock and not hay_stock:
+                mejor_precio, mejor_articulo, mejor_venta, hay_stock = (
+                    precio,
+                    articulo,
+                    venta,
+                    True,
+                )
+            elif con_stock == hay_stock and (mejor_precio is None or precio < mejor_precio):
                 mejor_precio, mejor_articulo, mejor_venta = precio, articulo, venta
 
     if mejor_precio is None or mejor_articulo is None or mejor_venta is None:
@@ -149,7 +162,7 @@ def _a_oferta(producto: dict, *, cadena: str, dominio: str) -> Oferta | None:
         ean=(mejor_articulo.get("ean") or "").strip() or None,
         url=enlace,
         imagen=(imagenes[0].get("imageUrl") if imagenes else None),
-        disponible=True,
+        disponible=hay_stock,
         magnitud=magnitud,
         unidad=unidad,
     )

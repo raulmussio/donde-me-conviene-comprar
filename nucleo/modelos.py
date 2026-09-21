@@ -90,6 +90,9 @@ class LineaCotizada:
     oferta: Oferta | None
     alternativas: list[Oferta] = field(default_factory=list)
     envases: int = 1
+    # Por que no hay oferta elegida. "sin_stock" significa que la cadena si
+    # vende el producto pero en la zona elegida figura agotado.
+    motivo: str | None = None
 
     @property
     def encontrado(self) -> bool:

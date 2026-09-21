@@ -25,8 +25,9 @@ from nucleo.formato import Formato
 from nucleo.lista import MAXIMO_ITEMS, parsear_lista
 from nucleo.modelos import CotizacionCadena, ItemLista, Oferta, Promo, Veredicto
 from nucleo.texto import formatear_envase, pesos
-from precios import zonas
+from precios import registro, zonas
 from precios.registro import CADENAS
+from precios.base import nueva_sesion
 from promociones.agregador import obtener_todas
 from promociones.bancos import nombre_entidad
 from ui import tema
@@ -96,6 +97,22 @@ def buscar_cacheado(
 def _etiqueta_marca(opcion: marcas.Marca) -> str:
     """Como se muestra una marca en el selector, con en cuantas cadenas existe."""
     return f"{opcion.etiqueta}  ({len(opcion.cadenas)})"
+
+
+@st.cache_data(ttl=TTL_PROMOS, show_spinner=False)
+def sucursales_cacheadas(
+    cadenas: tuple[str, ...], zona_clave: str
+) -> dict[str, list[zonas.Sucursal]]:
+    """Sucursales de cada cadena en la zona. Cambian poco, se cachean como las promos."""
+    zona = zonas.zona_de(zona_clave)
+    sesion = nueva_sesion()
+    try:
+        return {
+            clave: registro.sucursales(sesion, clave_cadena=clave, zona=zona)
+            for clave in cadenas
+        }
+    finally:
+        sesion.close()
 
 
 def marcas_elegidas(resultado: Resultado) -> list[str]:
@@ -541,7 +558,11 @@ def tabla_por_producto(resultado: Resultado) -> None:
                     detalle.append(
                         {
                             "Cadena": CADENAS[clave].nombre,
-                            "Producto": "no encontrado",
+                            "Producto": (
+                                "lo vende, pero sin stock en tu zona"
+                                if linea.motivo == "sin_stock"
+                                else "no encontrado"
+                            ),
                             "Envase": "-",
                             "Precio": "-",
                             "Envases": "-",
@@ -655,6 +676,40 @@ def mostrar_promociones(
         ["Hoy", "Cadena", "Descuento"], ascending=[False, True, False]
     )
     st.dataframe(tabla, width="stretch", hide_index=True)
+
+
+def mostrar_sucursales(
+    por_cadena: dict[str, list[zonas.Sucursal]], zona: zonas.Zona
+) -> None:
+    """Donde quedan los locales de cada cadena en la zona elegida."""
+    st.markdown(
+        '<div class="nota">Los precios de arriba son los de esta zona. Estas son '
+        "las sucursales donde comprarlos, ordenadas por cercania al centro de la "
+        "zona.</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown("")
+
+    columnas = st.columns(min(3, max(1, len(por_cadena))))
+    for indice, (clave, sucursales) in enumerate(por_cadena.items()):
+        with columnas[indice % len(columnas)]:
+            color = tema.color_de(clave)
+            st.markdown(
+                f'<div class="nombre-cadena" style="margin-bottom:.4rem">'
+                f'<span class="punto" style="background:{color}"></span>'
+                f"{CADENAS[clave].nombre}</div>",
+                unsafe_allow_html=True,
+            )
+            if not sucursales:
+                st.markdown(
+                    '<div class="nota">No publica un listado de sucursales.</div>',
+                    unsafe_allow_html=True,
+                )
+                continue
+            cuerpo = "".join(
+                f"<div>{sucursal.etiqueta}</div>" for sucursal in sucursales
+            )
+            st.markdown(f'<div class="nota">{cuerpo}</div>', unsafe_allow_html=True)
 
 
 def _pasa_filtro(promo: Promo, preferencias: Preferencias) -> bool:
@@ -778,7 +833,12 @@ def main() -> None:
     mostrar_ranking(veredictos, total_items=len(items_activos))
 
     pestanas = st.tabs(
-        ["Detalle por producto", "Proximos 7 dias", "Promociones vigentes"]
+        [
+            "Detalle por producto",
+            "Proximos 7 dias",
+            "Promociones vigentes",
+            "Sucursales de tu zona",
+        ]
     )
 
     with pestanas[0]:
@@ -804,6 +864,13 @@ def main() -> None:
     with pestanas[2]:
         tema.titulo("Promociones vigentes", "filtradas por tus medios de pago")
         mostrar_promociones(promos, eleccion["cadenas"], preferencias, hoy)
+
+    with pestanas[3]:
+        zona = zonas.zona_de(zona_activa)
+        tema.titulo("Sucursales de tu zona", zona.nombre)
+        mostrar_sucursales(
+            sucursales_cacheadas(tuple(cadenas_activas), zona_activa), zona
+        )
 
 
 if __name__ == "__main__":

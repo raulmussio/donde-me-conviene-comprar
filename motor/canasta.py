@@ -32,7 +32,12 @@ import requests
 
 from nucleo import formato as formatos
 from nucleo import marca as marcas
-from nucleo.coincidencias import elegir_mejor, unidades_necesarias
+from nucleo.coincidencias import (
+    elegir_mejor,
+    hay_agotado,
+    puntuar_todos,
+    unidades_necesarias,
+)
 from nucleo.formato import Formato
 from nucleo.marca import Marca
 from nucleo.modelos import CotizacionCadena, ItemLista, LineaCotizada, Oferta
@@ -102,10 +107,16 @@ class Resultado:
     def por_cadena(
         self, indice: int, *, marca: str = SIN_MARCA
     ) -> dict[str, list[Oferta]]:
-        """Candidatos de cada cadena para un item, agrupados y filtrados por marca."""
+        """Candidatos de cada cadena para un item, agrupados y filtrados por marca.
+
+        Vienen con el puntaje ya calculado porque el acuerdo de formato lo usa
+        para desempatar.
+        """
+        item = self.items[indice]
         return {
-            cadena: marcas.filtrar(
-                list(self.candidatos.get((cadena, indice)) or []), marca
+            cadena: puntuar_todos(
+                item,
+                marcas.filtrar(list(self.candidatos.get((cadena, indice)) or []), marca),
             )
             for cadena in self.cadenas
         }
@@ -180,6 +191,9 @@ def armar(
                     oferta=mejor,
                     alternativas=alternativas,
                     envases=unidades_necesarias(envase, mejor) if mejor else 1,
+                    motivo=(
+                        "sin_stock" if mejor is None and hay_agotado(alternativas) else None
+                    ),
                 )
             )
         if clave in resultado.errores:

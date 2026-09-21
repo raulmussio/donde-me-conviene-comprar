@@ -115,3 +115,27 @@ def buscar(
         region_id=region,
         canal_venta=cadena.canal_venta,
     )
+
+
+def sucursales(
+    sesion: requests.Session, *, clave_cadena: str, zona: zonas.Zona
+) -> list[zonas.Sucursal]:
+    """Sucursales de una cadena en una zona, para saber donde ir a comprar.
+
+    Coto publica su listado completo con direccion; las cadenas VTEX lo
+    devuelven por cercania a un punto. Jumbo no publica ninguno, asi que la
+    lista viene vacia.
+    """
+    cadena = CADENAS.get(clave_cadena)
+    if cadena is None:
+        raise KeyError(f"cadena desconocida: {clave_cadena}")
+
+    if cadena.motor == "coto":
+        return zonas.sucursales_coto_como(zona, zonas.sucursales_coto_de(sesion, zona))
+
+    if not cadena.soporta_zona:
+        return []
+
+    return zonas.sucursales_vtex(
+        sesion, cadena=cadena.clave, dominio=cadena.dominio, zona=zona
+    )

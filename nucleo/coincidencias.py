@@ -208,6 +208,23 @@ def _referencia(oferta: Oferta) -> float | None:
     return oferta.precio_por_unidad if oferta.precio_por_unidad else oferta.precio
 
 
+def puntuar_todos(item: ItemLista, candidatos: list[Oferta]) -> list[Oferta]:
+    """Copia los candidatos con su puntaje ya calculado.
+
+    El acuerdo de formato lo necesita: desempata por que tan bien representan al
+    pedido los productos de cada tamano, y sin puntaje ese desempate no existe.
+    """
+    return [_con_puntaje(oferta, puntuar(item, oferta)) for oferta in candidatos]
+
+
+def hay_agotado(candidatos: list[Oferta]) -> bool:
+    """True si algun candidato representaba el pedido pero figura sin stock."""
+    return any(
+        not oferta.disponible and oferta.puntaje >= UMBRAL_ACEPTACION
+        for oferta in candidatos
+    )
+
+
 def elegir_mejor(
     item: ItemLista,
     candidatos: list[Oferta],
@@ -229,7 +246,7 @@ def elegir_mejor(
     """
     puntuados: list[Oferta] = []
     for oferta in candidatos:
-        if not oferta.disponible or oferta.precio <= 0:
+        if oferta.precio <= 0:
             continue
         puntaje = puntuar(item, oferta)
         if puntaje <= 0:
@@ -239,11 +256,11 @@ def elegir_mejor(
     if not puntuados:
         return None, []
 
-    puntuados = descartar_atipicos(puntuados)
-    if not puntuados:
-        return None, []
-
-    aceptables = [o for o in puntuados if o.puntaje >= UMBRAL_ACEPTACION]
+    # Lo agotado se puntua igual, para poder distinguir despues "no lo tienen"
+    # de "en tu zona esta sin stock", pero no compite por ser elegido.
+    aceptables = [
+        o for o in puntuados if o.puntaje >= UMBRAL_ACEPTACION and o.disponible
+    ]
     puntuados.sort(key=lambda o: (-o.puntaje, costo_efectivo(formato, o)))
 
     if not aceptables:
@@ -270,6 +287,13 @@ def elegir_mejor(
         elegibles = competidores
     else:
         elegibles = [o for o in competidores if o.unidad == formato.unidad]
+
+    # Las fichas viejas se buscan recien aca, entre los productos que ya son el
+    # mismo producto en el mismo tamano. Hacerlo antes comparaba cosas que no se
+    # comparan: pedir "banana" trae la fruta a $2.499 el kilo y galletitas de
+    # banana a $22.500 el kilo, y contra esa mediana la fruta parecia un precio
+    # imposible y se descartaba.
+    elegibles = descartar_atipicos(elegibles)
 
     if not elegibles:
         return None, puntuados[:maximo_alternativas]

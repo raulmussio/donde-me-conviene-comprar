@@ -83,7 +83,7 @@ Estan documentados en el codigo, pero conviene tenerlos a mano:
 
 ---
 
-## Las seis decisiones que definen si la app dice la verdad
+## Las siete decisiones que definen si la app dice la verdad
 
 ### 1. No cotizar el producto equivocado
 
@@ -103,9 +103,17 @@ anios. Hoy conviven en Coto un arroz de 1 kg a $1.770 y otro, de nombre casi
 identico, a $78,90. Tomar el segundo como "el precio de Coto" no seria encontrar
 una oferta: seria un error.
 
-`descartar_atipicos` corta contra la mediana de los propios candidatos de esa
-busqueda, no contra un monto fijo, para que el criterio siga sirviendo cuando
-los precios cambien.
+`descartar_atipicos` corta contra la mediana de los propios candidatos, no
+contra un monto fijo, para que el criterio siga sirviendo cuando los precios
+cambien.
+
+**Corre recien sobre los productos ya elegidos como comparables**, nunca sobre
+la busqueda cruda. Aplicarlo antes comparaba cosas que no se comparan y borraba
+justo lo correcto: buscando "leche" en ChangoMas los candidatos son chocolates
+por gramo, cremas por mililitro y un extractor de leche de $241.999 por unidad;
+contra esa mediana la unica leche de verdad, a $2.889 el litro, parecia un
+precio imposible. Lo mismo con "banana": la fruta a $2.499 el kilo contra
+galletitas de banana a $22.500 el kilo.
 
 ### 3. Comparar el costo de cubrir lo que pediste, no el precio de la etiqueta
 
@@ -177,6 +185,46 @@ donde el campo de marca quedo vacio o mal cargado.
 Fijar una marca cambia los envases disponibles: los de Casancrem no son los de
 La Paulina. Si el envase elegido antes deja de existir, se vuelve a acordar solo.
 
+### 7. Lo que pediste tiene que ser el producto, no un ingrediente
+
+Una busqueda de una o dos palabras la cumple cualquier producto que las
+contenga. Pedir "leche" en ChangoMas devuelve arroz con leche, crema de leche,
+alfajores de dulce de leche, un batidor de leche y un extractor de leche: con
+solo contar palabras, los seis puntuan igual que la leche.
+
+La senal que los separa es **donde** aparece la palabra. En las gondolas el tipo
+de producto encabeza el nombre y lo que sigue lo especifica: "Leche Ilolay
+Proteina 1 L" es leche, "Chocolate con leche Bariloche" no. `nucleo/coincidencias.py`
+puntua esa posicion.
+
+Ademas, solo compiten entre si los candidatos que estan a menos de un margen del
+mejor puntaje de esa cadena. Sin eso, cualquier producto que apenas superara el
+umbral ganaba por ser el mas barato.
+
+### Ademas: los supermercados no conocen sinonimos
+
+En Argentina el papel de cocina se llama **rollo** de cocina. Pedir "papel de
+cocina" devuelve un solo resultado en Carrefour y ninguno en ChangoMas; pedir
+"rollo de cocina" devuelve doce en cada una. Cambiar la palabra es de lejos lo
+que mas mejora los resultados, mucho mas que afinar la puntuacion.
+
+`nucleo/texto.py` tiene las equivalencias de vocabulario y, cuando una cadena
+responde con muy poco, `motor/canasta.py` reintenta con la otra forma de
+nombrarlo y junta los dos conjuntos. El reintento solo ocurre cuando hizo falta.
+
+### Ademas: lo fresco no declara envase
+
+Una banana no dice cuanto pesa: se vende "x Kg" o "x Un". Como el acuerdo de
+formato solo miraba los envases declarados, para "alcaucil" terminaba comparando
+corazones de alcaucil en frasco a $18.890 cuando lo que se pidio vale $4.999 en
+la verduleria.
+
+Se resolvio de dos formas. "X Kg" y "Por Kg" se leen como **1 kg**, que es lo que
+hace comparables entre si a los frescos: las cadenas publican la misma banana
+como "Banana x Kg" o como "Banana 1 Kg", y leerlos distinto las dejaba en grupos
+separados. Y lo que sigue sin envase compite como un formato mas, "fresco, por
+unidad o peso", en vez de quedar afuera del acuerdo.
+
 ### Ademas: tamanos imposibles
 
 Los catalogos tambien tienen errores de tipeo en las unidades. Coto publica hoy
@@ -215,6 +263,19 @@ Medido sobre la misma busqueda y comparando por EAN:
 Por eso las cadenas que no publican precios por zona lo dicen en su propia
 tarjeta: con "GBA Sur" elegido arriba, nadie supondria que una de las cinco esta
 mostrando otra cosa.
+
+### Que mas hace la zona
+
+El precio es lo que menos cambia. Lo que la zona aporta de verdad es:
+
+- **Donde ir.** La pestana *Sucursales de tu zona* lista los locales de cada
+  cadena con nombre y direccion. Salen de `pickup-points` para las cadenas VTEX
+  y del listado publico de Coto.
+- **Si lo vas a conseguir.** El stock cambia por zona, asi que un producto que
+  la cadena vende pero que en tu zona figura agotado se informa como
+  **"lo vende, pero sin stock en tu zona"**, que no es lo mismo que "no
+  encontrado". Sin esa distincion, una cadena parecia no tener un producto que
+  si vende.
 
 ### Las sucursales de Coto se leen, no se escriben
 
@@ -284,7 +345,7 @@ precios/
   vtex.py                 Carrefour, Jumbo, Dia, ChangoMas
   coto.py                 Constructor.io
   registro.py             que cadena se consulta con que cliente
-  zonas.py                CABA y GBA: regiones VTEX y sucursales de Coto
+  zonas.py                CABA y GBA: regiones, sucursales y disponibilidad
 promociones/
   bancos.py               vocabulario de entidades, topes y porcentajes
   vtex_bp.py              Carrefour y ChangoMas

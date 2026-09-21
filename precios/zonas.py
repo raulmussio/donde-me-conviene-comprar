@@ -50,6 +50,9 @@ class Zona:
     codigo_postal: str
     # Como escribe Coto esta zona en la direccion de sus sucursales.
     etiqueta_coto: str
+    # Punto de referencia para pedir sucursales cercanas, como "longitud;latitud"
+    # que es el orden en que lo manda el propio sitio.
+    coordenadas: str
 
 
 ZONAS: dict[str, Zona] = {
@@ -58,24 +61,32 @@ ZONAS: dict[str, Zona] = {
         nombre="Ciudad de Buenos Aires",
         codigo_postal="1425",
         etiqueta_coto="CAPITAL FEDERAL",
+        # Obelisco
+        coordenadas="-58.3816;-34.6037",
     ),
     "gba_norte": Zona(
         clave="gba_norte",
         nombre="GBA Norte",
         codigo_postal="1636",
         etiqueta_coto="ZONA NORTE",
+        # San Isidro
+        coordenadas="-58.5126;-34.4708",
     ),
     "gba_oeste": Zona(
         clave="gba_oeste",
         nombre="GBA Oeste",
         codigo_postal="1704",
         etiqueta_coto="ZONA OESTE",
+        # Moron
+        coordenadas="-58.6198;-34.6534",
     ),
     "gba_sur": Zona(
         clave="gba_sur",
         nombre="GBA Sur",
         codigo_postal="1878",
         etiqueta_coto="ZONA SUR",
+        # Quilmes
+        coordenadas="-58.2543;-34.7203",
     ),
 }
 
@@ -212,3 +223,127 @@ def tiendas_coto_de(sesion: requests.Session, zona: Zona) -> frozenset[str]:
 def zona_de(clave: str | None) -> Zona:
     """La zona pedida, o la de por defecto si la clave no existe."""
     return ZONAS.get(clave or "", ZONAS[ZONA_POR_DEFECTO])
+
+
+# ---------------------------------------------------------------------------
+# Sucursales de cada cadena en la zona
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Sucursal:
+    """Una sucursal concreta, ya sea de Coto o de una cadena VTEX."""
+
+    cadena: str
+    nombre: str
+    direccion: str
+    localidad: str = ""
+
+    @property
+    def etiqueta(self) -> str:
+        partes = [self.nombre]
+        # Varias cadenas repiten la calle como nombre del punto; no hace falta
+        # decirla dos veces.
+        if self.direccion and self.direccion.lower() not in self.nombre.lower():
+            partes.append(self.direccion)
+        if self.localidad and self.localidad.lower() not in " ".join(partes).lower():
+            partes.append(self.localidad)
+        return " - ".join(partes)
+
+
+MAXIMO_SUCURSALES = 12
+
+
+def sucursales_vtex(
+    sesion: requests.Session, *, cadena: str, dominio: str, zona: Zona
+) -> list[Sucursal]:
+    """Sucursales de una cadena VTEX cerca del punto de referencia de la zona.
+
+    Sale de `pickup-points`, que es el listado de puntos de retiro y coincide
+    con los locales fisicos. Jumbo devuelve una lista vacia, igual que con todo
+    lo demas referido a zonas.
+    """
+    url = f"https://{dominio}/api/checkout/pub/pickup-points"
+    try:
+        respuesta = sesion.get(
+            url,
+            params={"geoCoordinates": zona.coordenadas, "countryCode": "ARG"},
+            timeout=TIEMPO_ESPERA,
+        )
+        if respuesta.status_code != 200:
+            return []
+        items = (respuesta.json() or {}).get("items") or []
+    except (requests.RequestException, ValueError) as exc:
+        LOGGER.info("sin sucursales para %s: %s", cadena, exc)
+        return []
+
+    salida: list[Sucursal] = []
+    vistas: set[tuple[str, str]] = set()
+    for entrada in items:
+        punto = entrada.get("pickupPoint") or {}
+        direccion = punto.get("address") or {}
+        nombre = _limpiar_nombre(punto.get("friendlyName") or "")
+        calle = " ".join(
+            str(parte).strip()
+            for parte in (direccion.get("street"), direccion.get("number"))
+            if parte
+        ).strip()
+        # Algunas entradas traen el texto literal "None" en vez de venir vacias.
+        localidad = ""
+        for campo in (direccion.get("neighborhood"), direccion.get("city")):
+            texto = str(campo or "").strip()
+            if texto and texto.lower() != "none":
+                localidad = texto
+                break
+        # ChangoMas usa el campo de calle para anunciar la modalidad de retiro
+        # ("Retira sin bajarte del auto!"). Una direccion sin numero y con esa
+        # redaccion no es una direccion.
+        if calle and not re.search(r"\d", calle) and re.search(r"retir|pickup|auto", calle, re.I):
+            calle = ""
+        if not nombre and not calle:
+            continue
+        # Las cadenas repiten el mismo local con varias modalidades de retiro.
+        firma = (nombre.lower(), calle.lower())
+        if firma in vistas:
+            continue
+        vistas.add(firma)
+        salida.append(
+            Sucursal(cadena=cadena, nombre=nombre or calle, direccion=calle, localidad=localidad)
+        )
+        if len(salida) >= MAXIMO_SUCURSALES:
+            break
+    return salida
+
+
+def _limpiar_nombre(nombre: str) -> str:
+    """Saca la modalidad de entrega con que las cadenas bautizan sus puntos.
+
+    Los locales vienen como "Retira en Tienda Quilmes" o
+    "Pickup HIPERChangoMas Avellaneda - Retira sin bajarte del auto!": lo util
+    es el local, no como se retira.
+    """
+    limpio = re.sub(
+        r"^\s*(retir[aoá]?\s+en\s+(tienda|sucursal)?|pickup|retiro\s+en\s+tienda)\s*",
+        "",
+        nombre,
+        flags=re.IGNORECASE,
+    )
+    # Lo que va despues de un guion suele ser el eslogan de la modalidad.
+    cabeza, separador, cola = limpio.partition(" - ")
+    if separador and re.search(r"retir|pickup|auto|envio|delivery", cola, re.IGNORECASE):
+        limpio = cabeza
+    return limpio.strip(" -") or nombre.strip()
+
+
+def sucursales_coto_como(zona: Zona, sucursales: list[SucursalCoto]) -> list[Sucursal]:
+    """Adapta las sucursales de Coto al tipo comun."""
+    # Coto nombra sus sucursales por la localidad ("Avellaneda", "Abasto"), asi
+    # que repetir la zona al final no agrega nada.
+    return [
+        Sucursal(
+            cadena="coto",
+            nombre=sucursal.nombre.title(),
+            direccion=sucursal.direccion,
+        )
+        for sucursal in sucursales[:MAXIMO_SUCURSALES]
+    ]
