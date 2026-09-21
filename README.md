@@ -130,11 +130,29 @@ una de 600 ml en Coto y una de 354 ml en ChangoMas, y ganaba el envase mas
 chico, no el mejor precio. Pedir `queso crema` traia un paquete de Cheetos de
 43 gramos compitiendo contra potes de 290.
 
-`nucleo/formato.py` acuerda primero **un solo envase para todas las cadenas**:
-gana el tamano que mas cadenas tienen, y entre empates el que mejor coincide con
-lo pedido. Recien despues se comparan precios dentro de ese envase. Eso tambien
-resuelve el caso de los Cheetos sin necesidad de entender que son un snack: no
-entran en el formato de 500 g que tienen cuatro de las cinco cadenas.
+`nucleo/formato.py` acuerda primero **un solo envase para todas las cadenas**.
+Recien despues se comparan precios dentro de ese envase. Eso tambien resuelve el
+caso de los Cheetos sin necesidad de entender que son un snack: no entran en el
+formato de 500 g que tienen cuatro de las cinco cadenas.
+
+El envase elegido es el **comun**, no el mas chico ni el mas grande. Gana el que
+esta en mas cadenas y, entre esos, el que tiene mas productos que son de verdad
+lo que se pidio:
+
+- La cobertura sola no alcanza porque se satura: con varios tamanos presentes en
+  las cinco cadenas hay que desempatar, y hacerlo por calidad media elegia mal,
+  porque esa media baja cuanto mas grande es el grupo. Para "queso crema" elegia
+  el de 500 g, con 29 productos, sobre el de 290 g, que tiene 82 y es el que
+  esta en toda gondola.
+- Contar todos los productos tampoco alcanza, porque premia a los tamanos donde
+  se juntan las variedades raras: para "azucar" elegia el sobre de 250 g, que
+  suma 32 productos entre edulcorantes, azucar impalpable y azucar negra, sobre
+  el paquete de 1 kg, que es el que se compra.
+
+Contando solo los productos representativos, el formato elegido coincide con el
+de gondola en los doce productos con los que se probo: azucar 1 kg, queso crema
+290 g, detergente 500 ml, aceite 900 ml, fideos 500 g, yerba 500 g, papel
+higienico 4 unidades, rollo de cocina 3 unidades.
 
 El acuerdo es una prediccion, y puede no ser la que queres. Por eso la pestana
 **Detalle por producto** tiene un selector de envase por item: cambiarlo rehace

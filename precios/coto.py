@@ -105,10 +105,13 @@ def _a_oferta(resultado: dict, *, sucursales: frozenset[str] | None) -> Oferta |
     return Oferta(
         cadena="coto",
         nombre=nombre,
-        marca=(datos.get("product_brand") or "").strip() or None,
+        # Coto publica la marca como numero en algunas fichas, asi que no se
+        # puede asumir que sea texto: tratarla como tal hacia fallar la busqueda
+        # entera en esa cadena.
+        marca=str(datos.get("product_brand") or "").strip() or None,
         precio=precio,
         precio_lista=None,
-        ean=(str(datos.get("product_main_ean") or "").strip() or None),
+        ean=str(datos.get("product_main_ean") or "").strip() or None,
         url=f"https://www.coto.com.ar/productos/{identificador}" if identificador else None,
         imagen=datos.get("image_url") or datos.get("product_medium_image_url"),
         disponible=True,

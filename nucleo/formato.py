@@ -43,6 +43,11 @@ TOLERANCIA = 1.2
 # lo distingue el arrastre de palabras ajenas.
 MARGEN_DE_CALIDAD = 0.08
 
+# Un producto cuenta como representativo del pedido si esta a menos de este
+# margen del mejor candidato. Es mas estricto que el anterior porque no decide
+# si un formato es admisible, sino cual de los admisibles es el comun.
+MARGEN_REPRESENTATIVO = 0.05
+
 
 @dataclass(frozen=True)
 class Formato:
@@ -102,10 +107,10 @@ def consensuar(
 ) -> Formato:
     """Elige el formato con el que se va a comparar este item.
 
-    Gana el tamano presente en mas cadenas. Entre empates decide la calidad
-    media de las coincidencias, que es lo que separa tres potes de queso crema
-    de 290 g de dos paquetes de Cheetos de 43 g: los Cheetos arrastran palabras
-    ajenas al pedido y puntuan mas bajo.
+    Gana el tamano presente en mas cadenas y, entre esos, el que tiene mas
+    productos que son de verdad lo que se pidio. Es decir, el formato comun: el
+    paquete de azucar de 1 kg y no el sobre de 250 g, el pote de queso crema de
+    290 g y no el de medio kilo.
     """
     pedido = del_item(item)
     if pedido:
@@ -164,8 +169,8 @@ def _opciones(candidatos_por_cadena: dict[str, list[Oferta]]) -> list[Formato]:
     # cuatro.
     mejor_global = max((oferta.puntaje for _, oferta in todos), default=0.0)
 
-    puntuados: list[tuple[float, float, float, Formato]] = []
-    descartados: list[tuple[float, float, float, Formato]] = []
+    puntuados: list[tuple[float, float, float, float, Formato]] = []
+    descartados: list[tuple[float, float, float, float, Formato]] = []
     for formato in vistos:
         cadenas: set[str] = set()
         puntajes: list[float] = []
@@ -176,10 +181,28 @@ def _opciones(candidatos_por_cadena: dict[str, list[Oferta]]) -> list[Formato]:
         if not cadenas:
             continue
         calidad = sum(puntajes) / len(puntajes) if puntajes else 0.0
-        # Orden: mas cadenas primero; a igualdad, mejor calidad de coincidencia;
-        # y recien ahi el envase mas grande, que suele ser el formato familiar.
+        # Cuantos productos de ese tamano son de verdad lo que se pidio. Es la
+        # medida de que tan comun es el formato, y decide el desempate.
+        representativos = sum(
+            1 for puntaje in puntajes if puntaje >= mejor_global - MARGEN_REPRESENTATIVO
+        )
+        # Orden: en cuantas cadenas esta, cuantos productos representativos
+        # tiene, la calidad media y por ultimo el envase mas grande.
+        #
+        # Hace falta contar productos porque la cobertura se satura: con varios
+        # tamanos presentes en las cinco cadenas, desempatar por calidad media
+        # elige mal, porque esa media baja cuanto mas grande es el grupo. Para
+        # "queso crema" elegia el de 500 g, con 29 productos, sobre el de 290 g,
+        # que tiene 82 y es el que esta en toda gondola.
+        #
+        # Y hace falta contar solo los representativos, no todos, porque el
+        # conteo crudo premia a los tamanos donde se juntan las variedades
+        # raras: para "azucar" elegia el sobre de 250 g, que suma 32 productos
+        # entre edulcorantes, azucar impalpable y azucar negra, sobre el paquete
+        # de 1 kg, que es el que se compra.
         fila = (
             -float(len(cadenas)),
+            -float(representativos),
             -round(calidad, 3),
             -(formato.magnitud or 0),
             formato,
@@ -189,11 +212,11 @@ def _opciones(candidatos_por_cadena: dict[str, list[Oferta]]) -> list[Formato]:
         else:
             descartados.append(fila)
 
-    puntuados.sort(key=lambda fila: fila[:3])
-    descartados.sort(key=lambda fila: fila[:3])
+    puntuados.sort(key=lambda fila: fila[:4])
+    descartados.sort(key=lambda fila: fila[:4])
     # Los descartados igual se ofrecen al final del selector: son envases reales
     # y el usuario puede querer justamente ese.
-    return [fila[3] for fila in puntuados] + [fila[3] for fila in descartados]
+    return [fila[4] for fila in puntuados] + [fila[4] for fila in descartados]
 
 
 def _mismo(uno: Formato, otro: Formato) -> bool:
