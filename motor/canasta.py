@@ -7,11 +7,13 @@ en cada cadena, acordar con que envase se compara y armar una
 El trabajo va en dos pasadas separadas a proposito:
 
 1. `buscar` sale a la red y junta los candidatos crudos de las cinco cadenas.
-2. `armar` no toca la red: acuerda el formato y elige un producto por cadena.
+2. `armar` no toca la red: filtra por marca, acuerda el formato y elige un
+   producto por cadena.
 
-Estan separadas porque el usuario puede querer cambiar el envase con el que se
-compara ("mostrame la Coca de 2,25 L, no la de 220 ml") y eso no deberia
-significar volver a consultar cinco sitios.
+Estan separadas porque el usuario puede querer cambiar el envase o la marca con
+los que se compara ("mostrame la Coca de 2,25 L, no la de 220 ml"; "quiero
+Casancrem, no la segunda marca de cada cadena") y eso no deberia significar
+volver a consultar cinco sitios.
 
 Las busquedas van en paralelo porque son independientes, pero con un tope por
 cadena: golpear un mismo sitio con diez pedidos simultaneos es la forma mas
@@ -29,8 +31,10 @@ from dataclasses import dataclass, field
 import requests
 
 from nucleo import formato as formatos
+from nucleo import marca as marcas
 from nucleo.coincidencias import elegir_mejor, unidades_necesarias
 from nucleo.formato import Formato
+from nucleo.marca import Marca
 from nucleo.modelos import CotizacionCadena, ItemLista, LineaCotizada, Oferta
 from precios import registro
 from precios.base import ErrorCadena, nueva_sesion
@@ -42,6 +46,11 @@ SIMULTANEAS_POR_CADENA = 3
 
 # Pedidos simultaneos totales, sumando todas las cadenas.
 SIMULTANEAS_TOTALES = 10
+
+# Alias local de "ninguna marca fijada". Hace falta porque `Resultado` tiene un
+# campo llamado `marcas`, y dentro del cuerpo de la clase ese nombre tapa al
+# modulo del mismo nombre al evaluar los valores por defecto.
+SIN_MARCA = marcas.LIBRE
 
 
 @dataclass
@@ -57,19 +66,42 @@ class Resultado:
     cadenas: list[str]
     candidatos: dict[tuple[str, int], list[Oferta]] = field(default_factory=dict)
     formatos: list[Formato] = field(default_factory=list)
+    # Marca fijada por el usuario para cada item; cadena vacia significa que
+    # sirve cualquiera.
+    marcas: list[str] = field(default_factory=list)
     cotizaciones: dict[str, CotizacionCadena] = field(default_factory=dict)
     errores: dict[str, str] = field(default_factory=dict)
 
-    def opciones_de_formato(self, indice: int) -> list[Formato]:
-        """Envases que ofrecen las cadenas para ese item, del mas comun al menos."""
+    def marca_de(self, indice: int) -> str:
+        return self.marcas[indice] if indice < len(self.marcas) else marcas.LIBRE
+
+    def opciones_de_marca(self, indice: int) -> list[Marca]:
+        """Marcas que ofrecen las cadenas para ese item, de la mas comun a la menos."""
         if indice >= len(self.items):
             return []
-        return formatos.opciones_ordenadas(self.items[indice], self.por_cadena(indice))
+        return marcas.opciones(self.por_cadena(indice))
 
-    def por_cadena(self, indice: int) -> dict[str, list[Oferta]]:
-        """Candidatos de cada cadena para un item, agrupados."""
+    def opciones_de_formato(self, indice: int, marca: str | None = None) -> list[Formato]:
+        """Envases que ofrecen las cadenas para ese item, del mas comun al menos.
+
+        Con una marca fijada se consideran solo sus envases: los tamanos de las
+        otras marcas no son elegibles y ofrecerlos confundiria.
+        """
+        if indice >= len(self.items):
+            return []
+        clave = self.marca_de(indice) if marca is None else marca
+        return formatos.opciones_ordenadas(
+            self.items[indice], self.por_cadena(indice, marca=clave)
+        )
+
+    def por_cadena(
+        self, indice: int, *, marca: str = SIN_MARCA
+    ) -> dict[str, list[Oferta]]:
+        """Candidatos de cada cadena para un item, agrupados y filtrados por marca."""
         return {
-            cadena: list(self.candidatos.get((cadena, indice)) or [])
+            cadena: marcas.filtrar(
+                list(self.candidatos.get((cadena, indice)) or []), marca
+            )
             for cadena in self.cadenas
         }
 
@@ -103,13 +135,22 @@ def cotizar(
     return armar(resultado, elegidos)
 
 
-def armar(resultado: Resultado, elegidos: list[Formato]) -> Resultado:
+def armar(
+    resultado: Resultado,
+    elegidos: list[Formato],
+    fijadas: list[str] | None = None,
+) -> Resultado:
     """Elige un producto por cadena para cada item. No toca la red.
 
-    Se puede volver a llamar con otros formatos para rehacer la comparacion con
-    el envase que prefiera el usuario.
+    Se puede volver a llamar con otros formatos o marcas para rehacer la
+    comparacion a gusto del usuario.
+
+    La marca filtra antes que nada y sin red de contencion: si pediste Casancrem
+    y una cadena no lo tiene, esa cadena no tiene el producto. Cotizarle otra
+    marca seria contestar una pregunta que no se hizo.
     """
     resultado.formatos = list(elegidos)
+    resultado.marcas = list(fijadas or [marcas.LIBRE] * len(resultado.items))
     resultado.cotizaciones = {
         clave: CotizacionCadena(cadena=clave) for clave in resultado.cadenas
     }
@@ -126,6 +167,7 @@ def armar(resultado: Resultado, elegidos: list[Formato]) -> Resultado:
                 # haber buscado y no encontrar nada.
                 cotizacion.lineas.append(LineaCotizada(item=item, oferta=None))
                 continue
+            candidatos = marcas.filtrar(candidatos, resultado.marca_de(indice))
             mejor, alternativas = elegir_mejor(item, candidatos, formato=envase)
             cotizacion.lineas.append(
                 LineaCotizada(

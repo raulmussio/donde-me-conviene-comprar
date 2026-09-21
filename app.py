@@ -20,6 +20,7 @@ import streamlit as st
 from motor.canasta import Resultado, armar, buscar
 from motor.decision import Preferencias, calendario, evaluar, tiene_medio
 from nucleo import formato as formatos
+from nucleo import marca as marcas
 from nucleo.formato import Formato
 from nucleo.lista import MAXIMO_ITEMS, parsear_lista
 from nucleo.modelos import CotizacionCadena, ItemLista, Oferta, Promo, Veredicto
@@ -91,21 +92,50 @@ def buscar_cacheado(
     return buscar(list(items), list(cadenas), sucursal_coto=sucursal_coto)
 
 
-def formatos_elegidos(resultado: Resultado) -> list[Formato]:
-    """El envase con el que se compara cada item: el acordado o el que fijo el usuario."""
+def _etiqueta_marca(opcion: marcas.Marca) -> str:
+    """Como se muestra una marca en el selector, con en cuantas cadenas existe."""
+    return f"{opcion.etiqueta}  ({len(opcion.cadenas)})"
+
+
+def marcas_elegidas(resultado: Resultado) -> list[str]:
+    """La marca fijada para cada item. Vacia cuando sirve cualquiera."""
+    elegidas: list[str] = []
+    for indice in range(len(resultado.items)):
+        guardada = st.session_state.get(_clave_marca(indice))
+        disponibles = {
+            _etiqueta_marca(opcion): opcion.clave
+            for opcion in resultado.opciones_de_marca(indice)
+        }
+        elegidas.append(disponibles.get(guardada, marcas.LIBRE))
+    return elegidas
+
+
+def formatos_elegidos(resultado: Resultado, fijadas: list[str]) -> list[Formato]:
+    """El envase de cada item: el acordado entre cadenas o el que fijo el usuario.
+
+    Se calcula despues de la marca porque depende de ella: los envases de
+    Casancrem no son los de La Paulina, y al cambiar de marca el envase elegido
+    antes puede dejar de existir.
+    """
     elegidos: list[Formato] = []
     for indice, item in enumerate(resultado.items):
-        opciones = resultado.opciones_de_formato(indice)
+        clave_marca = fijadas[indice] if indice < len(fijadas) else marcas.LIBRE
+        opciones = resultado.opciones_de_formato(indice, marca=clave_marca)
         guardado = st.session_state.get(_clave_formato(indice))
         elegido = next((o for o in opciones if o.etiqueta == guardado), None)
         elegidos.append(
-            elegido or formatos.consensuar(item, resultado.por_cadena(indice))
+            elegido
+            or formatos.consensuar(item, resultado.por_cadena(indice, marca=clave_marca))
         )
     return elegidos
 
 
 def _clave_formato(indice: int) -> str:
     return f"formato_{indice}"
+
+
+def _clave_marca(indice: int) -> str:
+    return f"marca_{indice}"
 
 
 # ---------------------------------------------------------------------------
@@ -311,39 +341,102 @@ def _texto_promo(promo: Promo) -> str:
     return " &middot; ".join(partes) or promo.titulo
 
 
-def selectores_de_formato(resultado: Resultado) -> None:
-    """Deja elegir a mano con que envase se compara cada producto.
+def selectores_por_producto(resultado: Resultado) -> None:
+    """Deja fijar a mano la marca y el envase con los que se compara cada producto.
 
-    La app acuerda sola el formato mas comun entre las cinco cadenas, pero el
-    acuerdo puede no ser el que el usuario queria: "coca cola" puede resolverse
-    en 1,75 L cuando el queria la de 2,25. Cambiarlo aca no vuelve a consultar
-    los sitios, solo rehace la eleccion sobre lo que ya se trajo.
+    La app acuerda sola el envase mas comun entre las cinco cadenas y no fija
+    ninguna marca, que es lo razonable cuando no sabe que queres. Pero el
+    acuerdo puede no ser el tuyo: "coca cola" puede resolverse en 1,75 L cuando
+    querias la de 2,25, y "queso crema" puede cotizar la segunda marca de cada
+    cadena cuando vos comprabas Casancrem.
+
+    Cambiar cualquiera de los dos no vuelve a consultar los sitios: rehace la
+    eleccion sobre los productos que ya se trajeron.
     """
     st.markdown(
-        '<div class="nota">Cuando no escribis el tamano, la app compara todas '
-        "las cadenas con el envase que mas de ellas tienen. Si preferis otro, "
-        "cambialo aca.</div>",
+        '<div class="nota">La app compara todas las cadenas con el envase que '
+        "mas de ellas tienen y sin fijar marca. Si queres una marca puntual o "
+        "un envase distinto, elegilos aca. Entre parentesis, en cuantas cadenas "
+        "existe cada marca: mientras mas, mas completa la comparacion.</div>",
         unsafe_allow_html=True,
     )
     st.markdown("")
 
-    columnas = st.columns(min(3, max(1, len(resultado.items))))
+    encabezado = st.columns([3, 4, 3])
+    encabezado[0].caption("Producto")
+    encabezado[1].caption("Marca")
+    encabezado[2].caption("Envase")
+
     for indice, item in enumerate(resultado.items):
-        opciones = resultado.opciones_de_formato(indice)
-        with columnas[indice % len(columnas)]:
-            if len(opciones) <= 1:
-                st.caption(
-                    f"**{item.texto}** - {opciones[0].etiqueta if opciones else 'sin envase reconocido'}"
-                )
-                continue
-            etiquetas = [opcion.etiqueta for opcion in opciones]
-            actual = resultado.formatos[indice].etiqueta
-            st.selectbox(
-                item.texto,
-                options=etiquetas,
-                index=etiquetas.index(actual) if actual in etiquetas else 0,
-                key=_clave_formato(indice),
-            )
+        columnas = st.columns([3, 4, 3])
+        columnas[0].markdown(
+            f'<div style="padding-top:.55rem">{item.etiqueta}</div>',
+            unsafe_allow_html=True,
+        )
+        with columnas[1]:
+            _selector_de_marca(resultado, indice)
+        with columnas[2]:
+            _selector_de_envase(resultado, indice)
+
+
+def _selector_de_marca(resultado: Resultado, indice: int) -> None:
+    opciones = resultado.opciones_de_marca(indice)
+    if not opciones:
+        st.caption("sin marcas reconocidas")
+        return
+
+    etiquetas = [marcas.ETIQUETA_LIBRE] + [
+        _etiqueta_marca(opcion) for opcion in opciones
+    ]
+    clave = _clave_marca(indice)
+    _descartar_si_no_esta(clave, etiquetas)
+    st.selectbox(
+        "Marca",
+        options=etiquetas,
+        key=clave,
+        label_visibility="collapsed",
+    )
+
+
+def _selector_de_envase(resultado: Resultado, indice: int) -> None:
+    opciones = resultado.opciones_de_formato(indice)
+    if not opciones:
+        st.caption("sin envase reconocido")
+        return
+
+    etiquetas = [opcion.etiqueta for opcion in opciones]
+    clave = _clave_formato(indice)
+    _descartar_si_no_esta(clave, etiquetas)
+
+    actual = resultado.formatos[indice].etiqueta
+    if clave not in st.session_state and actual in etiquetas:
+        st.session_state[clave] = actual
+
+    st.selectbox(
+        "Envase",
+        options=etiquetas,
+        key=clave,
+        label_visibility="collapsed",
+    )
+
+
+def _descartar_si_no_esta(clave: str, etiquetas: list[str]) -> None:
+    """Olvida una eleccion que dejo de existir.
+
+    Pasa al cambiar de marca: el envase de 500 g que se habia elegido para
+    Casancrem no existe para La Paulina. Streamlit falla si el valor guardado de
+    un selector no esta entre sus opciones, asi que se limpia antes de dibujarlo.
+    """
+    if clave in st.session_state and st.session_state[clave] not in etiquetas:
+        del st.session_state[clave]
+
+
+def _nombre_marca(resultado: Resultado, indice: int, clave: str) -> str:
+    """Nombre presentable de una marca fijada, a partir de su clave interna."""
+    for opcion in resultado.opciones_de_marca(indice):
+        if opcion.clave == clave:
+            return opcion.etiqueta
+    return clave.title()
 
 
 def tabla_por_producto(resultado: Resultado) -> None:
@@ -356,9 +449,15 @@ def tabla_por_producto(resultado: Resultado) -> None:
 
     for indice, item in enumerate(items):
         etiqueta = item.etiqueta
+        aclaraciones: list[str] = []
+        marca_fijada = resultado.marca_de(indice)
+        if marca_fijada:
+            aclaraciones.append(_nombre_marca(resultado, indice, marca_fijada))
         envase = resultado.formatos[indice] if indice < len(resultado.formatos) else None
         if envase and not envase.es_libre:
-            etiqueta = f"{etiqueta}  ({envase.etiqueta})"
+            aclaraciones.append(envase.etiqueta)
+        if aclaraciones:
+            etiqueta = f"{etiqueta}  ({', '.join(aclaraciones)})"
         fila: dict[str, object] = {"Producto": etiqueta}
         subtotales: list[float] = []
         for clave in claves:
@@ -405,7 +504,15 @@ def tabla_por_producto(resultado: Resultado) -> None:
     with st.expander("Ver que producto exacto tomo cada cadena"):
         for indice, item in enumerate(items):
             envase = resultado.formatos[indice]
-            st.markdown(f"**{item.etiqueta}** - comparando en {envase.etiqueta}")
+            marca_fijada = resultado.marca_de(indice)
+            detalle_marca = (
+                f"{_nombre_marca(resultado, indice, marca_fijada)}, "
+                if marca_fijada
+                else ""
+            )
+            st.markdown(
+                f"**{item.etiqueta}** - comparando {detalle_marca}en {envase.etiqueta}"
+            )
             detalle: list[dict] = []
             for clave in claves:
                 linea = cotizaciones[clave].lineas[indice]
@@ -589,7 +696,11 @@ def main() -> None:
     if eleccion["comparar"] or "items_activos" not in st.session_state:
         # Cambiar la lista invalida los envases que el usuario habia fijado a
         # mano: los indices ya no apuntan al mismo producto.
-        for clave in [k for k in st.session_state if k.startswith("formato_")]:
+        for clave in [
+            k
+            for k in st.session_state
+            if k.startswith("formato_") or k.startswith("marca_")
+        ]:
             del st.session_state[clave]
         st.session_state["items_activos"] = items
         st.session_state["cadenas_activas"] = eleccion["cadenas"]
@@ -610,7 +721,8 @@ def main() -> None:
         candidatos=candidatos,
         errores=errores,
     )
-    armar(resultado, formatos_elegidos(resultado))
+    fijadas = marcas_elegidas(resultado)
+    armar(resultado, formatos_elegidos(resultado, fijadas), fijadas)
 
     # Si cambio la lista o las cadenas sin apretar el boton, lo que hay en
     # pantalla ya no corresponde: se avisa en vez de mostrar datos viejos.
@@ -639,7 +751,7 @@ def main() -> None:
     )
 
     with pestanas[0]:
-        selectores_de_formato(resultado)
+        selectores_por_producto(resultado)
         st.markdown("---")
         tabla_por_producto(resultado)
 

@@ -16,7 +16,8 @@ streamlit run app.py
 
 1. Lee tu lista de compras en texto libre, una linea por producto.
 2. Busca cada producto en las cinco cadenas, en paralelo.
-3. Elige en cada cadena el producto que realmente corresponde a lo que pediste.
+3. Acuerda un envase comun a todas las cadenas y, si fijaste una marca, la
+   respeta; con eso elige en cada cadena el producto que corresponde.
 4. Suma el total de la canasta por cadena.
 5. Aplica la mejor promocion bancaria disponible segun los bancos y billeteras
    que le digas que tenes.
@@ -79,7 +80,7 @@ Estan documentados en el codigo, pero conviene tenerlos a mano:
 
 ---
 
-## Las cinco decisiones que definen si la app dice la verdad
+## Las seis decisiones que definen si la app dice la verdad
 
 ### 1. No cotizar el producto equivocado
 
@@ -143,6 +144,36 @@ una cadena diez mil pesos mas cara quedaba primera solo por tener un producto
 mas que las otras. Un item que **ninguna** cadena encontro no penaliza a nadie:
 no es un faltante de esa cadena, es algo que la app no supo buscar.
 
+### 6. La marca la elegis vos, y fijarla es excluyente
+
+El envase se acuerda solo porque casi siempre hay una respuesta razonable. La
+marca no: que la app elija por su cuenta entre Casancrem y la segunda marca de
+cada cadena seria inventar una preferencia que nadie declaro. Por eso, sin
+indicacion, no se fija ninguna y se compara por precio.
+
+Cuando si la fijas, el filtro es **excluyente**, al reves que el de envase. Si
+pediste Casancrem y una cadena no lo tiene, la respuesta correcta es que no lo
+tiene: cotizarle otra marca seria contestar una pregunta que no hiciste. Esa
+cadena queda con el item faltante y entra el mecanismo de la decision 5.
+
+El selector muestra en cuantas cadenas existe cada marca, porque eso define que
+tan completa va a ser la comparacion:
+
+```
+Casancrem  (5)     ->  comparacion entre las cinco
+La Paulina (5)     ->  idem
+Arla       (1)     ->  solo dice cuanto sale en Jumbo
+```
+
+Las cinco cadenas publican la marca en un campo propio y lo llenan bien, pero
+cada una la escribe a su manera (`TREGAR`, `Tregar`, `LA PAULINA`,
+`La Paulina`). `nucleo/marca.py` las agrupa por su forma normalizada y muestra
+la grafia mas legible. Tambien mira el nombre del producto, para las fichas
+donde el campo de marca quedo vacio o mal cargado.
+
+Fijar una marca cambia los envases disponibles: los de Casancrem no son los de
+La Paulina. Si el envase elegido antes deja de existir, se vuelve a acordar solo.
+
 ### Ademas: tamanos imposibles
 
 Los catalogos tambien tienen errores de tipeo en las unidades. Coto publica hoy
@@ -201,6 +232,7 @@ nucleo/
   lista.py                parseo de la lista de compras
   coincidencias.py        puntuacion producto-pedido, atipicos, costo efectivo
   formato.py              acuerdo del envase comun entre cadenas
+  marca.py                reconocimiento y fijado de marcas
 precios/
   base.py                 sesion HTTP con reintentos y limites
   vtex.py                 Carrefour, Jumbo, Dia, ChangoMas
