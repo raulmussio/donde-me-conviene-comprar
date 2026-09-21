@@ -36,7 +36,7 @@ from nucleo.coincidencias import elegir_mejor, unidades_necesarias
 from nucleo.formato import Formato
 from nucleo.marca import Marca
 from nucleo.modelos import CotizacionCadena, ItemLista, LineaCotizada, Oferta
-from precios import registro
+from precios import registro, zonas
 from precios.base import ErrorCadena, nueva_sesion
 
 LOGGER = logging.getLogger(__name__)
@@ -110,7 +110,7 @@ def cotizar(
     items: list[ItemLista],
     cadenas: list[str],
     *,
-    sucursal_coto: str | None = None,
+    zona: zonas.Zona | None = None,
     sesion: requests.Session | None = None,
     al_avanzar: Callable[[int, int], None] | None = None,
 ) -> Resultado:
@@ -118,7 +118,7 @@ def cotizar(
     candidatos, errores = buscar(
         items,
         cadenas,
-        sucursal_coto=sucursal_coto,
+        zona=zona,
         sesion=sesion,
         al_avanzar=al_avanzar,
     )
@@ -187,7 +187,7 @@ def buscar(
     items: list[ItemLista],
     cadenas: list[str],
     *,
-    sucursal_coto: str | None = None,
+    zona: zonas.Zona | None = None,
     sesion: requests.Session | None = None,
     al_avanzar: Callable[[int, int], None] | None = None,
 ) -> tuple[dict[tuple[str, int], list[Oferta]], dict[str, str]]:
@@ -221,7 +221,7 @@ def buscar(
                 sesion,
                 clave_cadena=clave,
                 consulta=item.texto,
-                sucursal_coto=sucursal_coto,
+                zona=zona,
             )
 
     try:

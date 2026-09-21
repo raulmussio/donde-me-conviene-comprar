@@ -77,6 +77,9 @@ Estan documentados en el codigo, pero conviene tenerlos a mano:
   descuento. Ver `_interpretar_descuento` en `promociones/jumbo.py`.
 - **Coto devuelve un precio por cada sucursal**, no un precio unico. Ver
   `_precio_de_sucursal` en `precios/coto.py`.
+- **Pasar `regionId` como parametro de la busqueda VTEX no hace nada.** El
+  endpoint lo acepta y lo ignora: devuelve los mismos precios para CABA que para
+  Cordoba. La zona se aplica con la cookie `vtex_segment`. Ver `precios/vtex.py`.
 
 ---
 
@@ -183,6 +186,49 @@ descarta las medidas fuera del rango plausible de un envase de supermercado.
 
 ---
 
+## Zonas: CABA y Gran Buenos Aires
+
+El precio del mismo producto cambia segun donde compres, y cada cadena resuelve
+la zona de una forma distinta. `precios/zonas.py` traduce "compro en zona sur" a
+lo que cada una necesita.
+
+| Cadena | Como se le pide la zona |
+|---|---|
+| Carrefour, Dia, ChangoMas | cookie `vtex_segment` con el `regionId` que devuelve su API de regiones para un codigo postal |
+| Coto | no regionaliza la busqueda: devuelve el precio de **todas** sus sucursales en la misma respuesta, y la zona se aplica al recibir |
+| Jumbo | no expone ninguna forma publica; se informa el precio de su tienda online |
+
+Zonas disponibles: **CABA**, **GBA Norte**, **GBA Oeste** y **GBA Sur**.
+
+### Cuanto cambia realmente
+
+Medido sobre la misma busqueda y comparando por EAN:
+
+- **Carrefour y Dia**: cotizan igual en CABA y en todo el GBA. Recien cambian
+  entre provincias.
+- **ChangoMas**: CABA y GBA Norte comparten lista; **GBA Oeste y GBA Sur
+  difieren**. La misma leche Las Tres Ninas de 1 L vale $2.749 en CABA y $2.719
+  en zona sur, y en el sur aparecen marcas que en CABA no estan.
+- **Jumbo**: sus canales de venta responden `sc is inactive` y su API de
+  regiones devuelve un error. No hay zona que pedir.
+
+Por eso las cadenas que no publican precios por zona lo dicen en su propia
+tarjeta: con "GBA Sur" elegido arriba, nadie supondria que una de las cinco esta
+mostrando otra cosa.
+
+### Las sucursales de Coto se leen, no se escriben
+
+El listado sale de `coto.com.ar/sucursales/index.asp`, que es una pagina plana
+con las 122 sucursales, su numero, direccion y zona. Se lee al vuelo para que
+abrir o cerrar una sucursal no obligue a tocar el codigo. Si la pagina falla,
+Coto cotiza sin filtro de zona en vez de romperse.
+
+Dentro de la zona se toma el precio **mas frecuente** entre sus sucursales, no
+el minimo: el minimo suele ser una sucursal suelta con una promocion puntual, y
+tomarlo haria parecer a Coto sistematicamente mas barato de lo que es.
+
+---
+
 ## Como se aplican las promociones
 
 - **Solo una promo por cadena.** Las promociones bancarias de supermercado no se
@@ -201,12 +247,12 @@ descarta las medidas fuera del rango plausible de un envase de supermercado.
 
 ## Limitaciones conocidas
 
-- **El precio depende de la sucursal.** Las cadenas publican listas distintas
-  por zona. Sin sucursal elegida, de Coto se toma el precio *mas frecuente*
-  entre sus sucursales, no el minimo, para no hacerlo parecer sistematicamente
-  mas barato de lo que es en CABA y GBA. Las cuatro cadenas VTEX devuelven la
-  lista de su canal de venta por defecto; `precios/registro.py` tiene el campo
-  `canal_venta` preparado para fijarla.
+- **Jumbo no tiene zona.** Las otras cuatro cotizan la zona elegida; Jumbo
+  informa el precio de su tienda online porque es el unico que publica. Su
+  tarjeta lo aclara.
+- **La zona es del area metropolitana.** Estan CABA y las tres zonas del GBA.
+  Para el interior hay que agregar la zona a `precios/zonas.py` con su codigo
+  postal y su etiqueta de Coto.
 - **Los precios son los de la tienda online.** Pueden no coincidir exactamente
   con la gondola del local.
 - **El banco se deduce del texto de la promo.** Ninguna cadena publica el
@@ -238,6 +284,7 @@ precios/
   vtex.py                 Carrefour, Jumbo, Dia, ChangoMas
   coto.py                 Constructor.io
   registro.py             que cadena se consulta con que cliente
+  zonas.py                CABA y GBA: regiones VTEX y sucursales de Coto
 promociones/
   bancos.py               vocabulario de entidades, topes y porcentajes
   vtex_bp.py              Carrefour y ChangoMas

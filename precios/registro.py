@@ -2,7 +2,7 @@
 
 Responsabilidad unica: saber que cadena se consulta con que cliente y con que
 parametros de zona. El resto de la app pide precios por aca y no necesita saber
-si detras hay VTEX o Constructor.io.
+si detras hay VTEX o Constructor.io, ni como resuelve cada una la zona.
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ import requests
 from nucleo.modelos import Oferta
 from precios import coto as cliente_coto
 from precios import vtex as cliente_vtex
+from precios import zonas
 
 LOGGER = logging.getLogger(__name__)
 
@@ -27,9 +28,13 @@ class Cadena:
     nombre: str
     motor: str  # "vtex" | "coto"
     dominio: str
-    # Canal de venta de VTEX. Determina la lista de precios que se devuelve y,
-    # con ella, la zona. Ver `precios/zonas.py`.
+    # Canal de venta de VTEX. Solo se usa en la busqueda clasica; la zona se
+    # resuelve con `regionId`. Ver `precios/zonas.py`.
     canal_venta: str | None = None
+    # False cuando la cadena no publica ninguna forma de pedir precios por zona.
+    # Es el caso de Jumbo: sus canales responden "sc is inactive" y su API de
+    # regiones devuelve un error.
+    soporta_zona: bool = True
     url_promociones: str = ""
 
 
@@ -53,6 +58,7 @@ CADENAS: dict[str, Cadena] = {
         nombre="Jumbo",
         motor="vtex",
         dominio="www.jumbo.com.ar",
+        soporta_zona=False,
         url_promociones="https://www.jumbo.com.ar/descuentos-del-dia",
     ),
     "dia": Cadena(
@@ -77,20 +83,35 @@ def buscar(
     *,
     clave_cadena: str,
     consulta: str,
-    sucursal_coto: str | None = None,
+    zona: zonas.Zona | None = None,
 ) -> list[Oferta]:
-    """Busca un termino en una cadena y devuelve sus ofertas sin puntuar."""
+    """Busca un termino en una cadena y devuelve sus ofertas sin puntuar.
+
+    Cada cadena aplica la zona a su manera: las VTEX con un `regionId` que se
+    pide por codigo postal, y Coto quedandose con las sucursales de esa zona
+    entre todas las que vienen en la respuesta.
+    """
     cadena = CADENAS.get(clave_cadena)
     if cadena is None:
         raise KeyError(f"cadena desconocida: {clave_cadena}")
 
     if cadena.motor == "coto":
-        return cliente_coto.buscar(sesion, consulta=consulta, sucursal=sucursal_coto)
+        sucursales = zonas.tiendas_coto_de(sesion, zona) if zona else None
+        return cliente_coto.buscar(
+            sesion, consulta=consulta, sucursales=sucursales or None
+        )
+
+    region = None
+    if zona and cadena.soporta_zona:
+        region = zonas.region_vtex(
+            sesion, dominio=cadena.dominio, codigo_postal=zona.codigo_postal
+        )
 
     return cliente_vtex.buscar(
         sesion,
         cadena=cadena.clave,
         dominio=cadena.dominio,
         consulta=consulta,
+        region_id=region,
         canal_venta=cadena.canal_venta,
     )

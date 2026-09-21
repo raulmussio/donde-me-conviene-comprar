@@ -4,12 +4,25 @@ Responsabilidad unica: traducir la respuesta del catalogo publico de VTEX
 (`/api/catalog_system/pub/products/search`) a objetos `Oferta`.
 
 Sirve para Carrefour, Jumbo, Dia y ChangoMas, que comparten plataforma y por lo
-tanto esquema. Lo unico que cambia entre ellas es el dominio y el canal de
-venta, que definen que lista de precios se devuelve.
+tanto esquema.
+
+La zona se aplica con la cookie `vtex_segment`, que lleva el `regionId` de la
+zona. Es el mecanismo que usa el propio sitio y es el que funciona:
+
+- Pasar `regionId` como parametro de la busqueda **no sirve**: el endpoint lo
+  acepta y lo ignora en silencio, devolviendo los mismos precios para CABA que
+  para Cordoba. Es la clase de detalle que hace creer que la zona anda cuando no.
+- El buscador moderno (`intelligent-search`) si respeta `regionId`, pero filtra
+  por stock de envio a domicilio y deja afuera la mayoria de los productos: para
+  "leche entera 1 l" en Carrefour devuelve 3 productos contra los 12 del
+  catalogo clasico, y varios de los que descarta tienen precio de gondola
+  perfectamente valido. Para comparar precios de super eso es peor, no mejor.
 """
 
 from __future__ import annotations
 
+import base64
+import json
 import logging
 import urllib.parse
 
@@ -33,23 +46,23 @@ def buscar(
     cadena: str,
     dominio: str,
     consulta: str,
+    region_id: str | None = None,
     canal_venta: str | None = None,
     limite: int = RESULTADOS_POR_BUSQUEDA,
 ) -> list[Oferta]:
-    """Busca `consulta` en una tienda VTEX y devuelve las ofertas encontradas."""
-    # El termino de busqueda va codificado a mano con %20. Si se deja que
-    # `requests` arme la query, los espacios viajan como "+" y el WAF de
-    # Carrefour responde 400 "Scripts are not allowed!". Las otras tres toleran
-    # ambas formas, asi que se usa la que funciona en todas.
-    termino = urllib.parse.quote(consulta.strip())
+    """Busca `consulta` en una tienda VTEX y devuelve las ofertas encontradas.
+
+    Con `region_id` los precios son los de esa zona; sin el, los de la lista por
+    defecto de la tienda.
+    """
     url = (
         f"https://{dominio}/api/catalog_system/pub/products/search"
-        f"?ft={termino}&_from=0&_to={max(0, limite - 1)}"
+        f"?ft={_termino(consulta)}&_from=0&_to={max(0, limite - 1)}"
     )
     if canal_venta:
         url += f"&sc={urllib.parse.quote(canal_venta)}"
 
-    crudo = pedir_json(sesion, url, cadena=cadena)
+    crudo = pedir_json(sesion, url, cadena=cadena, cabeceras=_cabeceras(region_id))
     if not isinstance(crudo, list):
         raise ErrorCadena(cadena, "el catalogo devolvio un formato inesperado")
 
@@ -59,6 +72,26 @@ def buscar(
         if oferta:
             ofertas.append(oferta)
     return ofertas
+
+
+def _termino(consulta: str) -> str:
+    """Codifica el termino de busqueda con %20 en vez de "+".
+
+    Si se deja que `requests` arme la query, los espacios viajan como "+" y el
+    WAF de Carrefour responde 400 "Scripts are not allowed!". Las otras tres
+    toleran ambas formas, asi que se usa la que funciona en todas.
+    """
+    return urllib.parse.quote(consulta.strip())
+
+
+def _cabeceras(region_id: str | None) -> dict[str, str] | None:
+    """Cookie de segmento que le dice a VTEX desde que zona se consulta."""
+    if not region_id:
+        return None
+    segmento = base64.b64encode(
+        json.dumps({"regionId": region_id, "channel": "1"}).encode()
+    ).decode()
+    return {"Cookie": f"vtex_segment={segmento}"}
 
 
 def _a_oferta(producto: dict, *, cadena: str, dominio: str) -> Oferta | None:

@@ -7,8 +7,10 @@ Coto no corre sobre VTEX: su tienda es una SPA que consulta `ac.cnstrc.com` con
 una clave publica embebida en el bundle de la pagina. Esa clave es la misma que
 usa el navegador de cualquier visitante.
 
-La particularidad importante es que Coto devuelve un precio por cada sucursal.
-No hay un "precio de Coto": hay decenas. Ver `_precio_de_sucursal`.
+La particularidad importante es que Coto devuelve un precio por cada sucursal en
+la misma respuesta. No hay un "precio de Coto": hay decenas. Eso significa que
+la zona no se pide, se aplica al recibir, quedandose con las sucursales que
+corresponden. Ver `_precio_de_sucursal`.
 """
 
 from __future__ import annotations
@@ -39,10 +41,14 @@ def buscar(
     sesion: requests.Session,
     *,
     consulta: str,
-    sucursal: str | None = None,
+    sucursales: frozenset[str] | None = None,
     limite: int = RESULTADOS_POR_BUSQUEDA,
 ) -> list[Oferta]:
-    """Busca `consulta` en Coto y devuelve las ofertas encontradas."""
+    """Busca `consulta` en Coto y devuelve las ofertas encontradas.
+
+    `sucursales` son los numeros de las sucursales de la zona elegida. Si viene
+    vacio se consideran todas.
+    """
     parametros = {
         "key": CLAVE_BUSCADOR,
         "i": "00000000-0000-0000-0000-000000000001",
@@ -60,20 +66,20 @@ def buscar(
 
     ofertas: list[Oferta] = []
     for resultado in resultados:
-        oferta = _a_oferta(resultado, sucursal=sucursal)
+        oferta = _a_oferta(resultado, sucursales=sucursales)
         if oferta:
             ofertas.append(oferta)
     return ofertas
 
 
-def _a_oferta(resultado: dict, *, sucursal: str | None) -> Oferta | None:
+def _a_oferta(resultado: dict, *, sucursales: frozenset[str] | None) -> Oferta | None:
     """Convierte un resultado de Constructor.io en Oferta."""
     datos = resultado.get("data") or {}
     nombre = (resultado.get("value") or "").strip()
     if not nombre:
         return None
 
-    precio = _precio_de_sucursal(datos.get("price"), sucursal=sucursal)
+    precio = _precio_de_sucursal(datos.get("price"), sucursales=sucursales)
     if precio is None:
         # Respaldo: algunos resultados traen el precio plano en vez de la lista
         # por sucursal.
@@ -108,13 +114,19 @@ def _a_oferta(resultado: dict, *, sucursal: str | None) -> Oferta | None:
     )
 
 
-def _precio_de_sucursal(precios: object, *, sucursal: str | None) -> float | None:
+def _precio_de_sucursal(
+    precios: object, *, sucursales: frozenset[str] | None
+) -> float | None:
     """Elige un precio entre los que Coto publica por sucursal.
 
-    Con sucursal elegida, se usa la suya. Sin sucursal, se usa el precio *mas
-    frecuente* entre todas, no el minimo: el minimo suele ser una sucursal
-    aislada del interior con una promocion puntual, y tomarlo haria que Coto
-    parezca sistematicamente mas barato de lo que es en CABA y GBA.
+    Con una zona elegida se miran solo sus sucursales. Entre ellas se toma el
+    precio *mas frecuente*, no el minimo: el minimo suele ser una sucursal
+    suelta con una promocion puntual, y tomarlo haria que Coto parezca
+    sistematicamente mas barato de lo que es.
+
+    Si ninguna sucursal de la zona cotiza el producto, se vuelve a considerar
+    todas. Es preferible informar el precio general que declarar que Coto no
+    tiene algo que si vende.
     """
     if not isinstance(precios, list) or not precios:
         return None
@@ -126,17 +138,15 @@ def _precio_de_sucursal(precios: object, *, sucursal: str | None) -> float | Non
         valor = entrada.get("listPrice")
         if not isinstance(valor, (int, float)) or valor <= 0:
             continue
-        validos.append((str(entrada.get("store") or ""), float(valor)))
+        validos.append((str(entrada.get("store") or "").zfill(3), float(valor)))
 
     if not validos:
         return None
 
-    if sucursal:
-        for tienda, valor in validos:
-            if tienda == sucursal:
-                return valor
-        # La sucursal pedida no cotiza este producto: se sigue con el criterio
-        # general en vez de descartar el producto entero.
+    if sucursales:
+        de_la_zona = [par for par in validos if par[0] in sucursales]
+        if de_la_zona:
+            validos = de_la_zona
 
     frecuencias = Counter(valor for _, valor in validos)
     return frecuencias.most_common(1)[0][0]

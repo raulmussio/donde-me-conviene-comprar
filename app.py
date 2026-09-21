@@ -25,6 +25,7 @@ from nucleo.formato import Formato
 from nucleo.lista import MAXIMO_ITEMS, parsear_lista
 from nucleo.modelos import CotizacionCadena, ItemLista, Oferta, Promo, Veredicto
 from nucleo.texto import formatear_envase, pesos
+from precios import zonas
 from precios.registro import CADENAS
 from promociones.agregador import obtener_todas
 from promociones.bancos import nombre_entidad
@@ -80,7 +81,7 @@ def cargar_promociones() -> tuple[list[Promo], dict[str, str]]:
 def buscar_cacheado(
     items: tuple[ItemLista, ...],
     cadenas: tuple[str, ...],
-    sucursal_coto: str | None,
+    zona_clave: str,
 ) -> tuple[dict[tuple[str, int], list[Oferta]], dict[str, str]]:
     """Trae los candidatos crudos de las cadenas.
 
@@ -89,7 +90,7 @@ def buscar_cacheado(
     permite que cambiar el envase con el que se compara no vuelva a consultar
     los cinco sitios.
     """
-    return buscar(list(items), list(cadenas), sucursal_coto=sucursal_coto)
+    return buscar(list(items), list(cadenas), zona=zonas.zona_de(zona_clave))
 
 
 def _etiqueta_marca(opcion: marcas.Marca) -> str:
@@ -159,6 +160,18 @@ def barra_lateral(promos: list[Promo]) -> dict:
         )
 
         st.markdown("### Donde")
+        zona = st.selectbox(
+            "Tu zona",
+            options=list(zonas.ZONAS),
+            index=list(zonas.ZONAS).index(zonas.ZONA_POR_DEFECTO),
+            format_func=lambda clave: zonas.ZONAS[clave].nombre,
+            help=(
+                "Define que lista de precios se consulta. Carrefour y Dia cotizan "
+                "igual en toda el area metropolitana; ChangoMas cambia entre CABA "
+                "y el oeste y el sur del conurbano. Jumbo no publica precios por "
+                "zona: se informa el de su tienda online."
+            ),
+        )
         cadenas = st.multiselect(
             "Cadenas a comparar",
             options=list(CADENAS),
@@ -203,6 +216,7 @@ def barra_lateral(promos: list[Promo]) -> dict:
 
     return {
         "texto": texto,
+        "zona": zona,
         "cadenas": cadenas,
         "modalidad": modalidad,
         "entidades": entidades,
@@ -304,6 +318,13 @@ def _tarjeta_cadena(
         )
 
     etiquetas: list[str] = []
+    # Si la cadena no publica precios por zona, hay que decirlo donde se lee el
+    # precio: con "GBA Sur" elegido arriba, nadie supondria que una de las cinco
+    # esta mostrando otra cosa.
+    if not CADENAS[veredicto.cadena].soporta_zona:
+        etiquetas.append(
+            '<span class="etiqueta">precio de su tienda online, no por zona</span>'
+        )
     if cotizacion.encontrados < total_items:
         faltan = total_items - cotizacion.encontrados
         etiquetas.append(
@@ -704,15 +725,17 @@ def main() -> None:
             del st.session_state[clave]
         st.session_state["items_activos"] = items
         st.session_state["cadenas_activas"] = eleccion["cadenas"]
+        st.session_state["zona_activa"] = eleccion["zona"]
 
     items_activos: list[ItemLista] = st.session_state["items_activos"]
     cadenas_activas: list[str] = st.session_state["cadenas_activas"]
+    zona_activa: str = st.session_state["zona_activa"]
 
     with st.spinner(
         f"Buscando {len(items_activos)} productos en {len(cadenas_activas)} cadenas..."
     ):
         candidatos, errores = buscar_cacheado(
-            tuple(items_activos), tuple(cadenas_activas), None
+            tuple(items_activos), tuple(cadenas_activas), zona_activa
         )
 
     resultado = Resultado(
@@ -726,10 +749,14 @@ def main() -> None:
 
     # Si cambio la lista o las cadenas sin apretar el boton, lo que hay en
     # pantalla ya no corresponde: se avisa en vez de mostrar datos viejos.
-    if items != items_activos or eleccion["cadenas"] != cadenas_activas:
+    if (
+        items != items_activos
+        or eleccion["cadenas"] != cadenas_activas
+        or eleccion["zona"] != zona_activa
+    ):
         st.info(
-            "Cambiaste la lista o las cadenas. Apreta **Comparar precios** para "
-            "actualizar."
+            "Cambiaste la lista, las cadenas o la zona. Apreta "
+            "**Comparar precios** para actualizar."
         )
 
     hoy = dt.date.today()
@@ -743,7 +770,11 @@ def main() -> None:
             "va a incluir los descuentos que te correspondan."
         )
 
-    tema.titulo("Donde comprar hoy", f"{DIAS_SEMANA[hoy.weekday()]} {hoy:%d/%m}")
+    tema.titulo(
+        "Donde comprar hoy",
+        f"{DIAS_SEMANA[hoy.weekday()]} {hoy:%d/%m} &middot; "
+        f"{zonas.zona_de(zona_activa).nombre}",
+    )
     mostrar_ranking(veredictos, total_items=len(items_activos))
 
     pestanas = st.tabs(
