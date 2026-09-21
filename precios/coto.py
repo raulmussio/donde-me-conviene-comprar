@@ -34,7 +34,10 @@ BASE = "https://ac.cnstrc.com/search"
 CLAVE_BUSCADOR = "key_r6xzz4IAoTWcipni"
 
 VERSION_CLIENTE = "ciojs-client-2.35.0"
-RESULTADOS_POR_BUSQUEDA = 12
+# Ver la nota en `precios/vtex.py`: de este numero depende que "el mas barato"
+# sea realmente el mas barato y no el mas barato entre los pocos que trajo el
+# buscador.
+RESULTADOS_POR_BUSQUEDA = 30
 
 
 def buscar(

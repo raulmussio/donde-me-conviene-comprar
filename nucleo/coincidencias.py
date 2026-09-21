@@ -16,7 +16,7 @@ import statistics
 
 from nucleo.formato import FORMATO_LIBRE, Formato
 from nucleo.modelos import ItemLista, Oferta
-from nucleo.texto import tokenizar, tokenizar_ordenado
+from nucleo.texto import modificadores_ajenos, tokenizar, tokenizar_ordenado
 
 # Un candidato que no alcanza este puntaje se descarta: preferimos decir "no lo
 # encontre en Dia" antes que cotizar el producto equivocado.
@@ -62,6 +62,12 @@ def puntuar(item: ItemLista, oferta: Oferta) -> float:
     # "leche" pero agrega un sustantivo que cambia el producto.
     if cobertura < 0.99:
         return cobertura * PESO_COBERTURA
+
+    # El producto trae una palabra que cambia lo que es. "Leche chocolatada" no
+    # es leche y "Detergente para ropa" no es detergente de vajilla, por mas que
+    # el nombre empiece igual y comparta todas las palabras del pedido.
+    if modificadores_ajenos(pedidos, f"{oferta.nombre} {oferta.marca or ''}"):
+        return PESO_COBERTURA * 0.5
 
     # Unidad incompatible con la pedida: es otra forma del producto, no otro
     # tamano. Quien pide "leche 1 L" no quiere leche en polvo de 800 g por mas

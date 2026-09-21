@@ -83,7 +83,7 @@ Estan documentados en el codigo, pero conviene tenerlos a mano:
 
 ---
 
-## Las siete decisiones que definen si la app dice la verdad
+## Las ocho decisiones que definen si la app dice la verdad
 
 ### 1. No cotizar el producto equivocado
 
@@ -200,6 +200,33 @@ puntua esa posicion.
 Ademas, solo compiten entre si los candidatos que estan a menos de un margen del
 mejor puntaje de esa cadena. Sin eso, cualquier producto que apenas superara el
 umbral ganaba por ser el mas barato.
+
+### 8. Sin marca elegida, el mas barato de verdad
+
+Cuando no fijas marca, la app cotiza el producto mas barato de cada cadena. Eso
+ya lo hacia, pero elegia entre muy poco: los buscadores devuelven sus resultados
+por relevancia propia, y con doce resultados buscar "leche" en Carrefour traia
+solo dos leches de 1 L. La mas barata salia $3.119 cuando en la gondola habia
+una a $1.890.
+
+Se piden 30 resultados por busqueda. Con eso Carrefour pasa de dos leches a
+ocho, y la mas barata baja a $1.890. Pasar a 50 ya no cambia el resultado.
+
+Pedir el catalogo **ordenado por precio** parece el atajo obvio y es peor: llena
+los primeros puestos con sachets y golosinas y deja cero leches de 1 L.
+
+Ampliar la red trae mas candidatos malos, asi que hizo falta una regla mas. Hay
+palabras que cambian lo que el producto es, y la diferencia es de significado y
+no de escritura: "Detergente Lavavajillas Zorro" y "Detergente Ropa Ecovita"
+comparten la palabra buscada, la tienen al principio y arrastran la misma
+cantidad de palabras ajenas. Ninguna senal de texto los separa; lo que los separa
+es que uno lava platos y el otro lava ropa. `MODIFICADORES_EXCLUYENTES` en
+`nucleo/texto.py` los lista, y dejan de excluir si el pedido los nombra: quien
+escribe "leche chocolatada" quiere exactamente eso.
+
+En esa lista tambien esta **retornable**, por otro motivo: el precio de una
+botella retornable no incluye el envase, asi que ponerlo a competir contra una
+descartable es comparar dos numeros que no miden lo mismo.
 
 ### Ademas: los supermercados no conocen sinonimos
 

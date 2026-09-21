@@ -50,8 +50,10 @@ LOGGER = logging.getLogger(__name__)
 # Pedidos simultaneos permitidos contra una misma cadena.
 SIMULTANEAS_POR_CADENA = 3
 
-# Pedidos simultaneos totales, sumando todas las cadenas.
-SIMULTANEAS_TOTALES = 10
+# Pedidos simultaneos totales, sumando todas las cadenas. Es el producto del
+# tope por cadena por la cantidad de cadenas: por debajo de eso, el tope global
+# frena consultas que la cadena si aceptaria, sin proteger a nadie.
+SIMULTANEAS_TOTALES = SIMULTANEAS_POR_CADENA * 5
 
 # Si una cadena devuelve menos resultados que esto, se reintenta la busqueda con
 # otra forma de nombrar el producto. Ver `_buscar_item`.

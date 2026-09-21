@@ -43,6 +43,40 @@ EQUIVALENCIAS: tuple[tuple[str, ...], ...] = (
 # Cuantas reescrituras de la busqueda se prueban como respaldo, por cadena.
 MAXIMO_VARIANTES = 2
 
+# Palabras que cambian lo que el producto es. Si el nombre trae una y el pedido
+# no, no es el producto pedido por mas que comparta el resto de las palabras.
+#
+# Hace falta porque la diferencia es de significado y no de escritura: "Detergente
+# Lavavajillas Zorro" y "Detergente Ropa Ecovita" comparten la palabra que se
+# busco, la tienen al principio y arrastran la misma cantidad de palabras
+# ajenas. Ninguna senal de texto los separa; lo que los separa es que uno lava
+# platos y el otro lava ropa.
+#
+# Si el pedido incluye la palabra, deja de excluir: quien escribe "leche
+# chocolatada" quiere exactamente eso.
+MODIFICADORES_EXCLUYENTES = frozenset(
+    {
+        # Cambian el producto
+        "chocolatada",
+        "chocolate",
+        "condensada",
+        "evaporada",
+        "polvo",
+        "ropa",
+        "lavarropas",
+        "mascotas",
+        "perro",
+        "gato",
+        "chips",
+        "rallado",
+        "untable",
+        # No cambia el producto pero si el precio: el de una botella retornable
+        # no incluye el envase, asi que no se puede comparar contra el de una
+        # descartable.
+        "retornable",
+    }
+)
+
 # Sinonimos frecuentes. La clave se reemplaza por el valor antes de comparar.
 SINONIMOS = {
     variante: grupo[0] for grupo in EQUIVALENCIAS for variante in grupo[1:]
@@ -236,6 +270,12 @@ def formatear_envase(magnitud: float | None, unidad: str | None) -> str:
     if unidad == "l":
         return f"{magnitud * 1000:.0f} ml" if magnitud < 1 else f"{magnitud:g} L"
     return f"{magnitud:g} un"
+
+
+def modificadores_ajenos(pedido: set[str], nombre: str) -> set[str]:
+    """Modificadores excluyentes que trae el producto y que el pedido no pidio."""
+    presentes = MODIFICADORES_EXCLUYENTES & set(tokenizar_ordenado(nombre))
+    return presentes - pedido
 
 
 def variantes_de_consulta(consulta: str) -> list[str]:

@@ -36,8 +36,17 @@ LOGGER = logging.getLogger(__name__)
 
 # Cuantos productos pedir por busqueda. El buscador de VTEX ordena por
 # relevancia propia, que no siempre coincide con la nuestra, asi que tomamos un
-# puñado y volvemos a puntuar con `nucleo.coincidencias`.
-RESULTADOS_POR_BUSQUEDA = 12
+# grupo grande y volvemos a puntuar con `nucleo.coincidencias`.
+#
+# Son 30 y no 12 porque de eso depende que "el mas barato" sea de verdad el mas
+# barato. Con 12, buscar "leche" en Carrefour traia solo dos leches de 1 L y la
+# mas barata salia $3.119; con 30 trae ocho y la mas barata sale $1.890. Pasar a
+# 50 ya no cambia el resultado.
+#
+# Pedir el catalogo ordenado por precio (`O=OrderByPriceASC`) parece el atajo
+# obvio y es peor: llena los primeros puestos con sachets y golosinas y deja
+# cero leches de 1 L.
+RESULTADOS_POR_BUSQUEDA = 30
 
 
 def buscar(
