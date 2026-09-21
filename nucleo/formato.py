@@ -27,8 +27,11 @@ LOGGER = logging.getLogger(__name__)
 
 # Dos envases se consideran el mismo formato si sus tamanos no difieren mas que
 # este factor. Cubre las diferencias reales entre marcas (900 ml contra 1 L,
-# 190 g contra 200 g) sin llegar a mezclar un individual con un familiar.
-TOLERANCIA = 1.3
+# 480 g contra 500 g, 190 g contra 200 g) sin mezclar tamanos que el cliente ve
+# como distintos: con 1.3 una Coca de 2,25 L entraba a competir contra las de
+# 1,75 L de las otras cadenas, que es un 28% mas de producto por un precio que
+# se mostraba como si fuera comparable.
+TOLERANCIA = 1.2
 
 
 @dataclass(frozen=True)

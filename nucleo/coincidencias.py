@@ -118,6 +118,11 @@ def unidades_necesarias(formato: Formato, oferta: Oferta) -> int:
         return 1
     if oferta.magnitud >= formato.magnitud:
         return 1
+    # Un envase que entra en el formato es un envase, aunque sea algo menor: un
+    # pote de 480 g es la presentacion de medio kilo de esa marca, y proponer
+    # comprar dos para "llegar" a 500 g duplicaria el precio sin motivo.
+    if formato.contiene(oferta):
+        return 1
     necesarias = math.ceil(formato.magnitud / oferta.magnitud)
     return max(1, min(necesarias, MAXIMO_ENVASES))
 
