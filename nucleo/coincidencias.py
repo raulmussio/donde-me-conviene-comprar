@@ -14,6 +14,7 @@ from __future__ import annotations
 import math
 import statistics
 
+from nucleo.formato import FORMATO_LIBRE, Formato
 from nucleo.modelos import ItemLista, Oferta
 from nucleo.texto import tokenizar
 
@@ -104,26 +105,26 @@ def _parecido_envase(item: ItemLista, oferta: Oferta) -> float:
     return razon
 
 
-def unidades_necesarias(item: ItemLista, oferta: Oferta) -> int:
-    """Cuantos envases hay que comprar para cubrir lo que pidio el usuario.
+def unidades_necesarias(formato: Formato, oferta: Oferta) -> int:
+    """Cuantos envases hay que comprar para cubrir el formato de referencia.
 
-    Si pediste 1 kg y el envase es de 500 g, hacen falta 2. Comparar el precio
-    del envase sin este ajuste hace ganar sistematicamente a la cadena que
-    vende el formato mas chico, que es justo al reves de lo que conviene.
+    Si se compara 1 kg y el envase es de 500 g, hacen falta 2. Comparar el
+    precio del envase sin este ajuste hace ganar sistematicamente a la cadena
+    que vende el formato mas chico, que es justo al reves de lo que conviene.
     """
-    if not item.magnitud_objetivo or not item.unidad_objetivo:
+    if formato.es_libre:
         return 1
-    if not oferta.magnitud or oferta.unidad != item.unidad_objetivo:
+    if not oferta.magnitud or oferta.unidad != formato.unidad:
         return 1
-    if oferta.magnitud >= item.magnitud_objetivo:
+    if oferta.magnitud >= formato.magnitud:
         return 1
-    necesarias = math.ceil(item.magnitud_objetivo / oferta.magnitud)
+    necesarias = math.ceil(formato.magnitud / oferta.magnitud)
     return max(1, min(necesarias, MAXIMO_ENVASES))
 
 
-def costo_efectivo(item: ItemLista, oferta: Oferta) -> float:
-    """Lo que cuesta cubrir el item con esa oferta, contando envases enteros."""
-    return oferta.precio * unidades_necesarias(item, oferta)
+def costo_efectivo(formato: Formato, oferta: Oferta) -> float:
+    """Lo que cuesta cubrir el formato con esa oferta, contando envases enteros."""
+    return oferta.precio * unidades_necesarias(formato, oferta)
 
 
 def descartar_atipicos(candidatos: list[Oferta]) -> list[Oferta]:
@@ -159,14 +160,23 @@ def _referencia(oferta: Oferta) -> float | None:
 
 
 def elegir_mejor(
-    item: ItemLista, candidatos: list[Oferta], *, maximo_alternativas: int = 4
+    item: ItemLista,
+    candidatos: list[Oferta],
+    *,
+    formato: Formato = FORMATO_LIBRE,
+    maximo_alternativas: int = 6,
 ) -> tuple[Oferta | None, list[Oferta]]:
-    """Devuelve (mejor oferta, alternativas) para un item.
+    """Devuelve (mejor oferta, alternativas) para un item, dentro de un formato.
 
     "Mejor" es el candidato mas barato entre los que superan el umbral de
-    parecido, no el mas parecido: una vez que sabemos que el producto es el
-    correcto, lo que decide es el precio. Las alternativas se devuelven ya
-    puntuadas para que la UI permita corregir a mano.
+    parecido *y* entran en el formato acordado, no el mas parecido: una vez que
+    sabemos que el producto y el tamano son los correctos, lo que decide es el
+    precio.
+
+    El formato filtra, pero no es una condicion excluyente. Si ninguna oferta de
+    la cadena entra en el, se vuelve a considerar todas contando cuantos envases
+    harian falta: es preferible decir "aca lo cubris con dos paquetes de 500 g"
+    antes que declarar que la cadena no tiene el producto.
     """
     puntuados: list[Oferta] = []
     for oferta in candidatos:
@@ -185,17 +195,20 @@ def elegir_mejor(
         return None, []
 
     aceptables = [o for o in puntuados if o.puntaje >= UMBRAL_ACEPTACION]
-    puntuados.sort(key=lambda o: (-o.puntaje, costo_efectivo(item, o)))
+    puntuados.sort(key=lambda o: (-o.puntaje, costo_efectivo(formato, o)))
 
     if not aceptables:
         # Nada supera el umbral: no elegimos nada, pero mostramos lo que hubo
         # para que el usuario decida si alguno le sirve.
         return None, puntuados[:maximo_alternativas]
 
+    en_formato = [o for o in aceptables if formato.contiene(o)]
+    elegibles = en_formato or aceptables
+
     # Entre los que representan al producto correcto decide el costo de cubrir
     # el pedido, no el precio de la etiqueta.
-    aceptables.sort(key=lambda o: (costo_efectivo(item, o), -o.puntaje))
-    mejor = aceptables[0]
+    elegibles.sort(key=lambda o: (costo_efectivo(formato, o), -o.puntaje))
+    mejor = elegibles[0]
     alternativas = [o for o in puntuados if o is not mejor][:maximo_alternativas]
     return mejor, alternativas
 

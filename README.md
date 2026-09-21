@@ -79,7 +79,7 @@ Estan documentados en el codigo, pero conviene tenerlos a mano:
 
 ---
 
-## Las tres decisiones que definen si la app dice la verdad
+## Las cinco decisiones que definen si la app dice la verdad
 
 ### 1. No cotizar el producto equivocado
 
@@ -109,6 +109,46 @@ Si pedis 1 kg y una cadena solo vende paquetes de 500 g, hacen falta dos. Sin
 ese ajuste gana siempre la cadena que vende el formato mas chico, que es justo
 al reves de lo que conviene. La columna **Envases** del detalle muestra cuantos
 se contaron.
+
+### 4. Comparar el mismo envase en todas las cadenas
+
+Cuando no escribis el tamano, cada cadena elegia el suyo y la comparacion dejaba
+de significar algo. Pedir `coca cola` traia una botella de 220 ml en Carrefour,
+una de 600 ml en Coto y una de 354 ml en ChangoMas, y ganaba el envase mas
+chico, no el mejor precio. Pedir `queso crema` traia un paquete de Cheetos de
+43 gramos compitiendo contra potes de 290.
+
+`nucleo/formato.py` acuerda primero **un solo envase para todas las cadenas**:
+gana el tamano que mas cadenas tienen, y entre empates el que mejor coincide con
+lo pedido. Recien despues se comparan precios dentro de ese envase. Eso tambien
+resuelve el caso de los Cheetos sin necesidad de entender que son un snack: no
+entran en el formato de 500 g que tienen cuatro de las cinco cadenas.
+
+El acuerdo es una prediccion, y puede no ser la que queres. Por eso la pestana
+**Detalle por producto** tiene un selector de envase por item: cambiarlo rehace
+la comparacion al instante, sin volver a consultar los sitios.
+
+El filtro por formato es una preferencia, no una condicion excluyente. Si pedis
+1 kg y una cadena solo vende paquetes de 500 g, se sigue ofreciendo esa cadena
+con dos paquetes en vez de declarar que no tiene el producto.
+
+### 5. Comparar siempre la misma canasta
+
+A una cadena que no tiene un producto se le suma lo que costaria conseguirlo en
+otro lado, estimado con el precio tipico de las cadenas que si lo tienen (la
+mediana, no el minimo: nadie cruza la ciudad por un solo producto).
+
+Antes esto se resolvia ordenando primero por cobertura y era peor el remedio:
+una cadena diez mil pesos mas cara quedaba primera solo por tener un producto
+mas que las otras. Un item que **ninguna** cadena encontro no penaliza a nadie:
+no es un faltante de esa cadena, es algo que la app no supo buscar.
+
+### Ademas: tamanos imposibles
+
+Los catalogos tambien tienen errores de tipeo en las unidades. Coto publica hoy
+`Coca-Cola Sabor Liviano 1,75 Ml` para una botella de 1,75 litros. Leerlo al pie
+de la letra metia un envase de dos mililitros entre las opciones. `nucleo/texto.py`
+descarta las medidas fuera del rango plausible de un envase de supermercado.
 
 ---
 
@@ -160,6 +200,7 @@ nucleo/
   texto.py                normalizacion y lectura de envases
   lista.py                parseo de la lista de compras
   coincidencias.py        puntuacion producto-pedido, atipicos, costo efectivo
+  formato.py              acuerdo del envase comun entre cadenas
 precios/
   base.py                 sesion HTTP con reintentos y limites
   vtex.py                 Carrefour, Jumbo, Dia, ChangoMas
@@ -173,7 +214,7 @@ promociones/
   coto.py                 Coto
   agregador.py            las cinco en paralelo, tolerante a fallos
 motor/
-  canasta.py              cotiza la lista en cada cadena
+  canasta.py              busca candidatos y arma la cotizacion (dos pasadas)
   decision.py             aplica promos, rankea y arma el calendario
 ui/
   tema.py                 paleta y CSS

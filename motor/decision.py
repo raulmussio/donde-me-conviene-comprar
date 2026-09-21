@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import statistics
 from dataclasses import dataclass
 
 from nucleo.modelos import CotizacionCadena, Promo, Veredicto
@@ -108,6 +109,25 @@ def mejor_promo(
     return mejor, mejor_ahorro
 
 
+def precios_de_referencia(
+    cotizaciones: dict[str, CotizacionCadena],
+) -> dict[int, float]:
+    """Precio tipico de cada item de la lista, segun las cadenas que lo tienen.
+
+    Se usa la mediana y no el minimo: el minimo supondria que vas a ir a buscar
+    ese unico producto a la cadena mas barata del pais, que no es lo que pasa en
+    la practica.
+    """
+    por_item: dict[int, list[float]] = {}
+    for cotizacion in cotizaciones.values():
+        for indice, linea in enumerate(cotizacion.lineas):
+            if linea.encontrado:
+                por_item.setdefault(indice, []).append(linea.subtotal)
+    return {
+        indice: statistics.median(valores) for indice, valores in por_item.items() if valores
+    }
+
+
 def evaluar(
     cotizaciones: dict[str, CotizacionCadena],
     promos: list[Promo],
@@ -117,10 +137,16 @@ def evaluar(
 ) -> list[Veredicto]:
     """Aplica la mejor promo a cada cadena y las ordena de mas a menos conveniente.
 
-    El orden prioriza la cobertura antes que el precio: una cadena que no tiene
-    la mitad de la lista puede mostrar el total mas bajo sin ser la mas barata,
-    porque lo que falta hay que comprarlo en otro lado.
+    Las cadenas se comparan sobre la misma canasta. A la que le falta un
+    producto se le suma lo que costaria conseguirlo en otro lado, estimado con
+    el precio tipico de las demas.
+
+    Antes esto se resolvia ordenando primero por cobertura, y era peor el
+    remedio: una cadena diez mil pesos mas cara quedaba primera solo por tener
+    un producto mas que las otras.
     """
+    referencias = precios_de_referencia(cotizaciones)
+
     veredictos: list[Veredicto] = []
     for cotizacion in cotizaciones.values():
         if not cotizacion.lineas or cotizacion.encontrados == 0:
@@ -132,15 +158,30 @@ def evaluar(
             total=cotizacion.total,
             preferencias=preferencias,
         )
-        veredictos.append(Veredicto(cotizacion=cotizacion, promo=promo, ahorro=ahorro))
+        estimado = 0.0
+        faltantes = 0
+        for indice, linea in enumerate(cotizacion.lineas):
+            if linea.encontrado:
+                continue
+            # Un item que ninguna cadena encontro no penaliza a nadie: no es un
+            # faltante de esta cadena, es un producto que la app no supo buscar.
+            if indice not in referencias:
+                continue
+            estimado += referencias[indice]
+            faltantes += 1
 
-    veredictos.sort(key=_orden)
+        veredictos.append(
+            Veredicto(
+                cotizacion=cotizacion,
+                promo=promo,
+                ahorro=ahorro,
+                estimado_afuera=estimado,
+                faltantes=faltantes,
+            )
+        )
+
+    veredictos.sort(key=lambda v: (v.total_canasta, v.faltantes))
     return veredictos
-
-
-def _orden(veredicto: Veredicto) -> tuple:
-    """Cobertura completa primero; dentro de cada grupo, el total mas bajo."""
-    return (-round(veredicto.cotizacion.cobertura, 2), veredicto.total_final)
 
 
 @dataclass(frozen=True)
@@ -151,7 +192,9 @@ class DiaDelCalendario:
     cadena: str | None
     nombre_cadena: str | None
     promo: Promo | None
-    total_final: float
+    # Canasta completa, comparable entre dias y entre cadenas: incluye lo que
+    # costaria conseguir afuera lo que esa cadena no tiene.
+    total_canasta: float
     ahorro: float
 
     @property
@@ -186,7 +229,7 @@ def calendario(
                     cadena=None,
                     nombre_cadena=None,
                     promo=None,
-                    total_final=0.0,
+                    total_canasta=0.0,
                     ahorro=0.0,
                 )
             )
@@ -198,7 +241,7 @@ def calendario(
                 cadena=ganador.cadena,
                 nombre_cadena=ganador.nombre,
                 promo=ganador.promo,
-                total_final=ganador.total_final,
+                total_canasta=ganador.total_canasta,
                 ahorro=ganador.ahorro,
             )
         )

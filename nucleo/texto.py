@@ -136,8 +136,23 @@ def parsear_envase(texto: str) -> tuple[float | None, str | None]:
     return ultimo if ultimo else (None, None)
 
 
+# Rango plausible de un envase de supermercado, por unidad base. Fuera de estos
+# limites la medida esta mal cargada en el catalogo, no es un producto raro.
+# Coto publica hoy "Coca-Cola Sabor Liviano 1,75 Ml" para una botella de 1,75 L:
+# leerlo al pie de la letra mete un envase de dos mililitros en la comparacion.
+_RANGO_PLAUSIBLE = {
+    "kg": (0.002, 50.0),
+    "l": (0.005, 50.0),
+    "un": (1.0, 500.0),
+}
+
+
 def _convertir(magnitud: str, unidad: str) -> tuple[float, str] | None:
-    """Pasa una medida cruda a la unidad base. None si la unidad no se reconoce."""
+    """Pasa una medida cruda a la unidad base.
+
+    Devuelve None si la unidad no se reconoce o si el tamano resultante no puede
+    ser el de un envase real.
+    """
     entrada = _UNIDADES.get(unidad.lower())
     if not entrada:
         return None
@@ -148,7 +163,12 @@ def _convertir(magnitud: str, unidad: str) -> tuple[float, str] | None:
         return None
     if valor <= 0:
         return None
-    return valor * factor, base
+
+    convertido = valor * factor
+    minimo, maximo = _RANGO_PLAUSIBLE.get(base, (0.0, float("inf")))
+    if not minimo <= convertido <= maximo:
+        return None
+    return convertido, base
 
 
 def formatear_envase(magnitud: float | None, unidad: str | None) -> str:

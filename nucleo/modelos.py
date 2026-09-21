@@ -188,11 +188,20 @@ class Promo:
 
 @dataclass
 class Veredicto:
-    """Una cadena ya evaluada con promo aplicada, lista para rankear."""
+    """Una cadena ya evaluada con promo aplicada, lista para rankear.
+
+    `estimado_afuera` es lo que costaria conseguir en otro lado los items que
+    esta cadena no tiene, estimado con el precio tipico de las cadenas que si
+    los tienen. Sin ese termino la comparacion es tramposa: una cadena a la que
+    le falta un producto muestra un total mas bajo sin ser mas barata, y una que
+    tiene todo puede quedar primera aunque cueste diez mil pesos mas.
+    """
 
     cotizacion: CotizacionCadena
     promo: Promo | None
     ahorro: float
+    estimado_afuera: float = 0.0
+    faltantes: int = 0
 
     @property
     def cadena(self) -> str:
@@ -208,4 +217,18 @@ class Veredicto:
 
     @property
     def total_final(self) -> float:
+        """Lo que pagas en esta cadena, ya con la promocion aplicada."""
         return max(0.0, self.total_bruto - self.ahorro)
+
+    @property
+    def total_canasta(self) -> float:
+        """Lo que te sale la lista completa si comprar el grueso aca.
+
+        Es el numero con el que se comparan las cadenas entre si, porque es el
+        unico que representa la misma canasta en todas.
+        """
+        return self.total_final + self.estimado_afuera
+
+    @property
+    def es_estimado(self) -> bool:
+        return self.faltantes > 0

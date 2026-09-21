@@ -17,10 +17,12 @@ import logging
 import pandas as pd
 import streamlit as st
 
-from motor.canasta import cotizar
+from motor.canasta import Resultado, armar, buscar
 from motor.decision import Preferencias, calendario, evaluar, tiene_medio
+from nucleo import formato as formatos
+from nucleo.formato import Formato
 from nucleo.lista import MAXIMO_ITEMS, parsear_lista
-from nucleo.modelos import CotizacionCadena, ItemLista, Promo, Veredicto
+from nucleo.modelos import CotizacionCadena, ItemLista, Oferta, Promo, Veredicto
 from nucleo.texto import formatear_envase, pesos
 from precios.registro import CADENAS
 from promociones.agregador import obtener_todas
@@ -74,13 +76,36 @@ def cargar_promociones() -> tuple[list[Promo], dict[str, str]]:
 
 
 @st.cache_data(ttl=TTL_PRECIOS, show_spinner=False)
-def cotizar_cacheado(
+def buscar_cacheado(
     items: tuple[ItemLista, ...],
     cadenas: tuple[str, ...],
     sucursal_coto: str | None,
-) -> dict[str, CotizacionCadena]:
-    """Cotiza la lista. Cacheado para que cambiar de banco no rebusque precios."""
-    return cotizar(list(items), list(cadenas), sucursal_coto=sucursal_coto)
+) -> tuple[dict[tuple[str, int], list[Oferta]], dict[str, str]]:
+    """Trae los candidatos crudos de las cadenas.
+
+    Se cachea solo la parte que sale a la red. Elegir el producto de cada cadena
+    es un calculo local y barato que se rehace en cada pasada, y es lo que
+    permite que cambiar el envase con el que se compara no vuelva a consultar
+    los cinco sitios.
+    """
+    return buscar(list(items), list(cadenas), sucursal_coto=sucursal_coto)
+
+
+def formatos_elegidos(resultado: Resultado) -> list[Formato]:
+    """El envase con el que se compara cada item: el acordado o el que fijo el usuario."""
+    elegidos: list[Formato] = []
+    for indice, item in enumerate(resultado.items):
+        opciones = resultado.opciones_de_formato(indice)
+        guardado = st.session_state.get(_clave_formato(indice))
+        elegido = next((o for o in opciones if o.etiqueta == guardado), None)
+        elegidos.append(
+            elegido or formatos.consensuar(item, resultado.por_cadena(indice))
+        )
+    return elegidos
+
+
+def _clave_formato(indice: int) -> str:
+    return f"formato_{indice}"
 
 
 # ---------------------------------------------------------------------------
@@ -177,21 +202,42 @@ def mostrar_ranking(veredictos: list[Veredicto], total_items: int) -> None:
         return
 
     ganador = veredictos[0]
-    peor = max(veredictos, key=lambda v: v.total_final)
-    diferencia = peor.total_final - ganador.total_final
+    peor = max(veredictos, key=lambda v: v.total_canasta)
 
     columnas = st.columns(3)
     columnas[0].metric(
-        "Te conviene", ganador.nombre, help="Cadena con el total final mas bajo."
+        "Te conviene",
+        ganador.nombre,
+        help=(
+            "Cadena con la canasta completa mas barata. Si a una cadena le falta "
+            "un producto, se le suma lo que costaria conseguirlo en otro lado, "
+            "para que todas se comparen sobre la misma lista."
+        ),
     )
-    columnas[1].metric("Vas a pagar", pesos(ganador.total_final))
-    columnas[2].metric(
-        "Contra la mas cara",
-        pesos(diferencia),
-        delta=f"-{diferencia / peor.total_final:.0%}" if peor.total_final else None,
-        delta_color="inverse",
-        help=f"Diferencia contra {peor.nombre}, la opcion mas cara de la comparacion.",
+    columnas[1].metric(
+        "Vas a pagar ahi",
+        pesos(ganador.total_final),
+        help=(
+            f"Mas {pesos(ganador.estimado_afuera)} estimados por los "
+            f"{ganador.faltantes} productos que no tiene."
+            if ganador.faltantes
+            else None
+        ),
     )
+
+    # Con una sola cadena no hay contra que comparar, y con un empate la
+    # diferencia es cero: mostrar "-0%" en verde seria decir algo que no pasa.
+    diferencia = peor.total_canasta - ganador.total_canasta
+    if len(veredictos) > 1 and diferencia > 0.01:
+        columnas[2].metric(
+            "Contra la mas cara",
+            pesos(diferencia),
+            delta=f"-{diferencia / peor.total_canasta:.0%}",
+            delta_color="inverse",
+            help=f"Diferencia contra {peor.nombre}, la opcion mas cara.",
+        )
+    else:
+        columnas[2].metric("Cadenas comparadas", str(len(veredictos)))
 
     st.markdown("")
     for posicion, veredicto in enumerate(veredictos):
@@ -219,6 +265,12 @@ def _tarjeta_cadena(
         detalle = (
             '<div class="nota">Sin promocion aplicable con los medios de pago '
             "elegidos.</div>"
+        )
+
+    if veredicto.faltantes:
+        importe += (
+            f' <span class="nota">+ {pesos(veredicto.estimado_afuera)} afuera '
+            f"= <b>{pesos(veredicto.total_canasta)}</b></span>"
         )
 
     etiquetas: list[str] = []
@@ -259,16 +311,55 @@ def _texto_promo(promo: Promo) -> str:
     return " &middot; ".join(partes) or promo.titulo
 
 
-def tabla_por_producto(
-    items: list[ItemLista], cotizaciones: dict[str, CotizacionCadena]
-) -> None:
+def selectores_de_formato(resultado: Resultado) -> None:
+    """Deja elegir a mano con que envase se compara cada producto.
+
+    La app acuerda sola el formato mas comun entre las cinco cadenas, pero el
+    acuerdo puede no ser el que el usuario queria: "coca cola" puede resolverse
+    en 1,75 L cuando el queria la de 2,25. Cambiarlo aca no vuelve a consultar
+    los sitios, solo rehace la eleccion sobre lo que ya se trajo.
+    """
+    st.markdown(
+        '<div class="nota">Cuando no escribis el tamano, la app compara todas '
+        "las cadenas con el envase que mas de ellas tienen. Si preferis otro, "
+        "cambialo aca.</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown("")
+
+    columnas = st.columns(min(3, max(1, len(resultado.items))))
+    for indice, item in enumerate(resultado.items):
+        opciones = resultado.opciones_de_formato(indice)
+        with columnas[indice % len(columnas)]:
+            if len(opciones) <= 1:
+                st.caption(
+                    f"**{item.texto}** - {opciones[0].etiqueta if opciones else 'sin envase reconocido'}"
+                )
+                continue
+            etiquetas = [opcion.etiqueta for opcion in opciones]
+            actual = resultado.formatos[indice].etiqueta
+            st.selectbox(
+                item.texto,
+                options=etiquetas,
+                index=etiquetas.index(actual) if actual in etiquetas else 0,
+                key=_clave_formato(indice),
+            )
+
+
+def tabla_por_producto(resultado: Resultado) -> None:
     """Una fila por producto, una columna por cadena, con el mas barato marcado."""
+    items = resultado.items
+    cotizaciones = resultado.cotizaciones
     claves = list(cotizaciones)
     filas: list[dict] = []
     minimos: list[float | None] = []
 
     for indice, item in enumerate(items):
-        fila: dict[str, object] = {"Producto": item.etiqueta}
+        etiqueta = item.etiqueta
+        envase = resultado.formatos[indice] if indice < len(resultado.formatos) else None
+        if envase and not envase.es_libre:
+            etiqueta = f"{etiqueta}  ({envase.etiqueta})"
+        fila: dict[str, object] = {"Producto": etiqueta}
         subtotales: list[float] = []
         for clave in claves:
             linea = cotizaciones[clave].lineas[indice]
@@ -313,7 +404,8 @@ def tabla_por_producto(
 
     with st.expander("Ver que producto exacto tomo cada cadena"):
         for indice, item in enumerate(items):
-            st.markdown(f"**{item.etiqueta}**")
+            envase = resultado.formatos[indice]
+            st.markdown(f"**{item.etiqueta}** - comparando en {envase.etiqueta}")
             detalle: list[dict] = []
             for clave in claves:
                 linea = cotizaciones[clave].lineas[indice]
@@ -340,16 +432,14 @@ def tabla_por_producto(
                         "Subtotal": pesos(linea.subtotal),
                     }
                 )
-            st.dataframe(
-                pd.DataFrame(detalle), width="stretch", hide_index=True
-            )
+            st.dataframe(pd.DataFrame(detalle), width="stretch", hide_index=True)
 
 
 def mostrar_calendario(agenda: list, hoy: dt.date) -> None:
     """Los proximos siete dias, con la mejor opcion de cada uno."""
     columnas = st.columns(len(agenda))
     con_datos = [dia for dia in agenda if dia.cadena]
-    mejor_dia = min(con_datos, key=lambda d: d.total_final) if con_datos else None
+    mejor_dia = min(con_datos, key=lambda d: d.total_canasta) if con_datos else None
 
     for columna, dia in zip(columnas, agenda):
         with columna:
@@ -370,7 +460,7 @@ def mostrar_calendario(agenda: list, hoy: dt.date) -> None:
                 cuerpo = (
                     f'<div style="font-weight:600;margin:.2rem 0">'
                     f"{dia.nombre_cadena}</div>"
-                    f'<div class="monto"{destaque}>{pesos(dia.total_final)}</div>'
+                    f'<div class="monto"{destaque}>{pesos(dia.total_canasta)}</div>'
                     f"{promo}"
                 )
             st.markdown(
@@ -383,9 +473,10 @@ def mostrar_calendario(agenda: list, hoy: dt.date) -> None:
 
     if mejor_dia and mejor_dia.fecha != hoy:
         hoy_total = next(
-            (d.total_final for d in con_datos if d.fecha == hoy), mejor_dia.total_final
+            (d.total_canasta for d in con_datos if d.fecha == hoy),
+            mejor_dia.total_canasta,
         )
-        diferencia = hoy_total - mejor_dia.total_final
+        diferencia = hoy_total - mejor_dia.total_canasta
         if diferencia > 0:
             st.success(
                 f"Esperando al {DIAS_SEMANA[mejor_dia.fecha.weekday()].lower()} "
@@ -493,29 +584,46 @@ def main() -> None:
         incluir_sin_banco=eleccion["incluir_sin_banco"],
     )
 
-    firma = (tuple(items), tuple(eleccion["cadenas"]))
-    if eleccion["comparar"] or "cotizaciones" not in st.session_state:
-        with st.spinner(
-            f"Buscando {len(items)} productos en {len(eleccion['cadenas'])} cadenas..."
-        ):
-            st.session_state["cotizaciones"] = cotizar_cacheado(
-                tuple(items), tuple(eleccion["cadenas"]), None
-            )
-            st.session_state["firma"] = firma
+    # La lista que se compara se congela al apretar el boton. Asi editar el
+    # texto no dispara consultas a cinco sitios en cada pasada de Streamlit.
+    if eleccion["comparar"] or "items_activos" not in st.session_state:
+        # Cambiar la lista invalida los envases que el usuario habia fijado a
+        # mano: los indices ya no apuntan al mismo producto.
+        for clave in [k for k in st.session_state if k.startswith("formato_")]:
+            del st.session_state[clave]
+        st.session_state["items_activos"] = items
+        st.session_state["cadenas_activas"] = eleccion["cadenas"]
 
-    cotizaciones = st.session_state["cotizaciones"]
-    items_mostrados = list(st.session_state["firma"][0])
+    items_activos: list[ItemLista] = st.session_state["items_activos"]
+    cadenas_activas: list[str] = st.session_state["cadenas_activas"]
+
+    with st.spinner(
+        f"Buscando {len(items_activos)} productos en {len(cadenas_activas)} cadenas..."
+    ):
+        candidatos, errores = buscar_cacheado(
+            tuple(items_activos), tuple(cadenas_activas), None
+        )
+
+    resultado = Resultado(
+        items=list(items_activos),
+        cadenas=list(cadenas_activas),
+        candidatos=candidatos,
+        errores=errores,
+    )
+    armar(resultado, formatos_elegidos(resultado))
 
     # Si cambio la lista o las cadenas sin apretar el boton, lo que hay en
     # pantalla ya no corresponde: se avisa en vez de mostrar datos viejos.
-    if st.session_state.get("firma") != firma:
+    if items != items_activos or eleccion["cadenas"] != cadenas_activas:
         st.info(
             "Cambiaste la lista o las cadenas. Apreta **Comparar precios** para "
             "actualizar."
         )
 
     hoy = dt.date.today()
-    veredictos = evaluar(cotizaciones, promos, dia=hoy, preferencias=preferencias)
+    veredictos = evaluar(
+        resultado.cotizaciones, promos, dia=hoy, preferencias=preferencias
+    )
 
     if not preferencias.entidades:
         st.info(
@@ -524,14 +632,16 @@ def main() -> None:
         )
 
     tema.titulo("Donde comprar hoy", f"{DIAS_SEMANA[hoy.weekday()]} {hoy:%d/%m}")
-    mostrar_ranking(veredictos, total_items=len(items_mostrados))
+    mostrar_ranking(veredictos, total_items=len(items_activos))
 
     pestanas = st.tabs(
         ["Detalle por producto", "Proximos 7 dias", "Promociones vigentes"]
     )
 
     with pestanas[0]:
-        tabla_por_producto(items_mostrados, cotizaciones)
+        selectores_de_formato(resultado)
+        st.markdown("---")
+        tabla_por_producto(resultado)
 
     with pestanas[1]:
         tema.titulo("Que dia conviene comprar", "con los precios de hoy")
@@ -542,7 +652,9 @@ def main() -> None:
         )
         st.markdown("")
         mostrar_calendario(
-            calendario(cotizaciones, promos, desde=hoy, preferencias=preferencias),
+            calendario(
+                resultado.cotizaciones, promos, desde=hoy, preferencias=preferencias
+            ),
             hoy,
         )
 
