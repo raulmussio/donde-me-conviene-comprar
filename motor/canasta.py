@@ -36,6 +36,7 @@ from nucleo.coincidencias import elegir_mejor, unidades_necesarias
 from nucleo.formato import Formato
 from nucleo.marca import Marca
 from nucleo.modelos import CotizacionCadena, ItemLista, LineaCotizada, Oferta
+from nucleo.texto import variantes_de_consulta
 from precios import registro, zonas
 from precios.base import ErrorCadena, nueva_sesion
 
@@ -46,6 +47,10 @@ SIMULTANEAS_POR_CADENA = 3
 
 # Pedidos simultaneos totales, sumando todas las cadenas.
 SIMULTANEAS_TOTALES = 10
+
+# Si una cadena devuelve menos resultados que esto, se reintenta la busqueda con
+# otra forma de nombrar el producto. Ver `_buscar_item`.
+POCOS_RESULTADOS = 3
 
 # Alias local de "ninguna marca fijada". Hace falta porque `Resultado` tiene un
 # campo llamado `marcas`, y dentro del cuerpo de la clase ese nombre tapa al
@@ -183,6 +188,51 @@ def armar(
     return resultado
 
 
+def _buscar_item(
+    sesion: requests.Session,
+    clave: str,
+    item: ItemLista,
+    *,
+    zona: zonas.Zona | None,
+    cupo: threading.Semaphore,
+) -> list[Oferta]:
+    """Busca un item en una cadena, reintentando con otro nombre si hace falta.
+
+    Los buscadores de los supermercados no conocen sinonimos. Pedir "papel de
+    cocina" devuelve un solo resultado en Carrefour y ninguno en ChangoMas,
+    mientras que "rollo de cocina" devuelve doce en cada una. Cuando una cadena
+    responde con muy poco, se prueba la otra forma de nombrarlo y se juntan los
+    dos conjuntos: elegir cual sirve ya es trabajo del puntaje.
+
+    El reintento solo ocurre cuando hizo falta, asi que no encarece las
+    busquedas que salen bien a la primera.
+    """
+    with cupo:
+        encontradas = registro.buscar(
+            sesion, clave_cadena=clave, consulta=item.texto, zona=zona
+        )
+
+    if len(encontradas) >= POCOS_RESULTADOS:
+        return encontradas
+
+    vistos = {(o.cadena, o.nombre) for o in encontradas}
+    for alternativa in variantes_de_consulta(item.texto):
+        with cupo:
+            try:
+                extra = registro.buscar(
+                    sesion, clave_cadena=clave, consulta=alternativa, zona=zona
+                )
+            except ErrorCadena:
+                continue
+        for oferta in extra:
+            if (oferta.cadena, oferta.nombre) not in vistos:
+                vistos.add((oferta.cadena, oferta.nombre))
+                encontradas.append(oferta)
+        if len(encontradas) >= POCOS_RESULTADOS:
+            break
+    return encontradas
+
+
 def buscar(
     items: list[ItemLista],
     cadenas: list[str],
@@ -216,13 +266,7 @@ def buscar(
     candado = threading.Lock()
 
     def trabajo(clave: str, item: ItemLista) -> list[Oferta]:
-        with cupos[clave]:
-            return registro.buscar(
-                sesion,
-                clave_cadena=clave,
-                consulta=item.texto,
-                zona=zona,
-            )
+        return _buscar_item(sesion, clave, item, zona=zona, cupo=cupos[clave])
 
     try:
         with ThreadPoolExecutor(max_workers=SIMULTANEAS_TOTALES) as ejecutor:

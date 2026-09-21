@@ -22,19 +22,30 @@ VACIAS = frozenset(
     """.split()
 )
 
-# Sinonimos frecuentes. La clave se reemplaza por el valor antes de comparar,
-# para que "gaseosa cola" y "bebida cola" caigan en el mismo lugar.
+# Palabras que nombran lo mismo. Cada grupo se reduce a su primer termino antes
+# de comparar, para que el nombre del producto y el del pedido caigan en el
+# mismo lugar aunque esten escritos distinto.
+#
+# El caso que obliga a esto es el papel de cocina: en las gondolas argentinas se
+# llama "rollo de cocina" y casi ningun producto dice "papel". Sin la
+# equivalencia, pedir "papel de cocina" descarta los rollos de las cinco cadenas
+# y se queda con un portarrollos de $36.249.
+EQUIVALENCIAS: tuple[tuple[str, ...], ...] = (
+    ("papel", "rollo"),
+    ("bebida", "gaseosa", "refresco"),
+    ("detergente", "lavavajilla", "lavavajillas"),
+    ("descremado", "descremada", "desnatada"),
+    ("semidescremado", "semidescremada"),
+    ("light", "dietetica", "dietetico", "diet"),
+    ("integral", "integrales"),
+)
+
+# Cuantas reescrituras de la busqueda se prueban como respaldo, por cadena.
+MAXIMO_VARIANTES = 2
+
+# Sinonimos frecuentes. La clave se reemplaza por el valor antes de comparar.
 SINONIMOS = {
-    "gaseosa": "bebida",
-    "refresco": "bebida",
-    "descremada": "descremado",
-    "desnatada": "descremado",
-    "semidescremada": "semidescremado",
-    "dietetica": "light",
-    "diet": "light",
-    "integrales": "integral",
-    "lavandina": "lavandina",
-    "papel": "papel",
+    variante: grupo[0] for grupo in EQUIVALENCIAS for variante in grupo[1:]
 }
 
 # Unidades reconocidas y su factor hacia la unidad base (kg para peso, L para
@@ -77,6 +88,16 @@ _RE_PACK = re.compile(
 # "900 g", "1,5L", "1 lt"
 _RE_SIMPLE = re.compile(rf"(?P<mag>{_NUMERO})\s*(?P<uni>[a-z]+3?)\b", re.IGNORECASE)
 
+# Cuenta de unidades de un pack, escrita como "x3", "3 u", "3 ud" o "4 unid".
+# Se limita a dos digitos para no confundirla con la cantidad de panos o de
+# metros, que en estos productos viene en el mismo nombre: un rollo de cocina se
+# llama "x3 40 panos" y un papel higienico "4 u. x 80 m.".
+_RE_CONTEO = re.compile(
+    r"\bx\s*(?P<a>\d{1,2})\b"
+    r"|\b(?P<b>\d{1,2})\s*(?:u|ud|uds|un|unid|unidad|unidades|rollos?)\b",
+    re.IGNORECASE,
+)
+
 
 def normalizar(texto: str) -> str:
     """Minusculas, sin acentos, sin puntuacion y con espacios colapsados."""
@@ -91,7 +112,17 @@ def normalizar(texto: str) -> str:
 
 def tokenizar(texto: str) -> set[str]:
     """Tokens significativos de un nombre: sin vacias, sin numeros sueltos."""
-    salida: set[str] = set()
+    return set(tokenizar_ordenado(texto))
+
+
+def tokenizar_ordenado(texto: str) -> list[str]:
+    """Los mismos tokens, en el orden en que aparecen.
+
+    El orden importa para saber si lo que pediste es el producto o solo un
+    ingrediente suyo: en los supermercados el tipo de producto va al principio
+    del nombre. "Leche Ilolay 1 L" es leche; "Chocolate con leche Bariloche" no.
+    """
+    salida: list[str] = []
     for bruto in normalizar(texto).split():
         token = bruto.strip(".,")
         if not token or token in VACIAS:
@@ -102,7 +133,7 @@ def tokenizar(texto: str) -> set[str]:
             continue
         if len(token) <= 1:
             continue
-        salida.add(SINONIMOS.get(token, token))
+        salida.append(SINONIMOS.get(token, token))
     return salida
 
 
@@ -133,7 +164,17 @@ def parsear_envase(texto: str) -> tuple[float | None, str | None]:
         convertido = _convertir(coincidencia.group("mag"), coincidencia.group("uni"))
         if convertido:
             ultimo = convertido
-    return ultimo if ultimo else (None, None)
+    if ultimo:
+        return ultimo
+
+    # Ni peso ni volumen: puede ser un pack contado por unidades. Se toma la
+    # primera cuenta que aparezca, que es la del envase; lo que viene despues
+    # suele ser el detalle del contenido ("x3 40 panos").
+    conteo = _RE_CONTEO.search(plano)
+    if conteo:
+        crudo = conteo.group("a") or conteo.group("b")
+        return _convertir(crudo, "un") or (None, None)
+    return None, None
 
 
 # Rango plausible de un envase de supermercado, por unidad base. Fuera de estos
@@ -180,6 +221,39 @@ def formatear_envase(magnitud: float | None, unidad: str | None) -> str:
     if unidad == "l":
         return f"{magnitud * 1000:.0f} ml" if magnitud < 1 else f"{magnitud:g} L"
     return f"{magnitud:g} un"
+
+
+def variantes_de_consulta(consulta: str) -> list[str]:
+    """Otras formas de escribir la misma busqueda, para reintentar en la cadena.
+
+    Los buscadores de los supermercados no conocen sinonimos: pedir
+    "papel de cocina" devuelve 1 resultado en Carrefour, 1 en Jumbo y ninguno en
+    ChangoMas, mientras que "rollo de cocina" devuelve 12, 12 y 12. Cambiar la
+    palabra es de lejos lo que mas mejora los resultados, mucho mas que afinar
+    la puntuacion.
+
+    Devuelve solo las variantes distintas del texto original.
+    """
+    palabras = normalizar(consulta).split()
+    if not palabras:
+        return []
+
+    # Solo se sustituye la primera palabra, que es la que nombra el producto y
+    # la que mas pesa en el buscador de la cadena. Cambiar un adjetivo
+    # ("descremada" por "desnatada") no cambia los resultados y gasta una
+    # consulta.
+    cabeza = palabras[0]
+    salida: list[str] = []
+    for grupo in EQUIVALENCIAS:
+        if cabeza not in grupo:
+            continue
+        for alternativa in grupo:
+            if alternativa == cabeza:
+                continue
+            candidata = " ".join([alternativa, *palabras[1:]])
+            if candidata not in salida:
+                salida.append(candidata)
+    return salida[:MAXIMO_VARIANTES]
 
 
 def pesos(monto: float) -> str:

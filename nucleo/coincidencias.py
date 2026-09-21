@@ -16,16 +16,21 @@ import statistics
 
 from nucleo.formato import FORMATO_LIBRE, Formato
 from nucleo.modelos import ItemLista, Oferta
-from nucleo.texto import tokenizar
+from nucleo.texto import tokenizar, tokenizar_ordenado
 
 # Un candidato que no alcanza este puntaje se descarta: preferimos decir "no lo
 # encontre en Dia" antes que cotizar el producto equivocado.
 UMBRAL_ACEPTACION = 0.55
 
 # Pesos del puntaje final. Suman 1.0.
-PESO_COBERTURA = 0.60  # cuantos tokens del pedido aparecen en el producto
-PESO_ENVASE = 0.25  # que tan parecido es el tamano al pedido
+PESO_COBERTURA = 0.45  # cuantos tokens del pedido aparecen en el producto
+PESO_POSICION = 0.25  # que tan al principio del nombre aparece lo que pediste
+PESO_ENVASE = 0.15  # que tan parecido es el tamano al pedido
 PESO_PRECISION = 0.15  # penaliza nombres inflados de palabras ajenas
+
+# Solo compiten entre si los candidatos que estan a menos de este margen del
+# mejor puntaje de esa cadena. Ver `elegir_mejor`.
+MARGEN_DE_COMPETENCIA = 0.10
 
 # Un candidato cuyo precio por unidad cae por debajo de esta fraccion de la
 # mediana del resto se considera un registro obsoleto, no una oferta. Ver
@@ -71,9 +76,36 @@ def puntuar(item: ItemLista, oferta: Oferta) -> float:
 
     return (
         PESO_COBERTURA
+        + PESO_POSICION * _parecido_posicion(pedidos, oferta)
         + PESO_ENVASE * _parecido_envase(item, oferta)
         + PESO_PRECISION * precision
     )
+
+
+def _parecido_posicion(pedidos: set[str], oferta: Oferta) -> float:
+    """Que tan al principio del nombre aparece lo que se pidio, 0..1.
+
+    En los supermercados el tipo de producto encabeza el nombre y lo que sigue
+    lo especifica: "Leche Ilolay Proteina 1 L". Cuando la palabra pedida aparece
+    despues de otra, casi siempre es un ingrediente y no el producto:
+    "Chocolate con leche", "Arroz con leche", "Batidor de leche", "Extractor de
+    leche". Sin esta senal esos cuatro puntuan igual que la leche de verdad,
+    porque todos contienen la palabra que se busco.
+    """
+    ordenados = tokenizar_ordenado(f"{oferta.nombre} {oferta.marca or ''}")
+    if not ordenados:
+        return 0.0
+
+    posiciones = [
+        indice
+        for indice, token in enumerate(ordenados)
+        if token in pedidos or _aparece(token, pedidos)
+    ]
+    if not posiciones:
+        return 0.0
+    # La primera aparicion es la que manda: alcanza con que el nombre empiece
+    # por lo pedido para que sea el producto y no una mencion de paso.
+    return 1.0 / (1.0 + min(posiciones))
 
 
 def _aparece(token: str, ofrecidos: set[str]) -> bool:
@@ -142,21 +174,33 @@ def descartar_atipicos(candidatos: list[Oferta]) -> list[Oferta]:
 
     El corte es relativo a la mediana de los propios candidatos, no un monto
     fijo, para que siga funcionando cuando los precios cambien.
+
+    La comparacion se hace **dentro de cada unidad por separado**. Mezclarlas
+    rompia el criterio de la peor manera: buscando "leche" en ChangoMas los
+    candidatos son chocolates por gramo, cremas por mililitro y un extractor de
+    leche de $241.999 por unidad. La mediana de esa mezcla daba $14.430, y la
+    unica leche de verdad, a $2.889 el litro, quedaba debajo del piso y se
+    descartaba por "vieja". Despues ganaba un chocolate de 30 g porque era el
+    mas barato que sobrevivia.
     """
-    if len(candidatos) < MINIMO_PARA_ATIPICOS:
-        return candidatos
+    por_unidad: dict[str | None, list[Oferta]] = {}
+    for oferta in candidatos:
+        por_unidad.setdefault(oferta.unidad, []).append(oferta)
 
-    referencias = [_referencia(o) for o in candidatos]
-    validas = [valor for valor in referencias if valor is not None]
-    if len(validas) < MINIMO_PARA_ATIPICOS:
-        return candidatos
+    descartados: set[int] = set()
+    for grupo in por_unidad.values():
+        if len(grupo) < MINIMO_PARA_ATIPICOS:
+            continue
+        referencias = [_referencia(o) for o in grupo]
+        validas = [valor for valor in referencias if valor is not None]
+        if len(validas) < MINIMO_PARA_ATIPICOS:
+            continue
+        piso = statistics.median(validas) * FACTOR_ATIPICO
+        for oferta, valor in zip(grupo, referencias):
+            if valor is not None and valor < piso:
+                descartados.add(id(oferta))
 
-    piso = statistics.median(validas) * FACTOR_ATIPICO
-    return [
-        oferta
-        for oferta, valor in zip(candidatos, referencias)
-        if valor is None or valor >= piso
-    ]
+    return [oferta for oferta in candidatos if id(oferta) not in descartados]
 
 
 def _referencia(oferta: Oferta) -> float | None:
@@ -207,8 +251,28 @@ def elegir_mejor(
         # para que el usuario decida si alguno le sirve.
         return None, puntuados[:maximo_alternativas]
 
-    en_formato = [o for o in aceptables if formato.contiene(o)]
-    elegibles = en_formato or aceptables
+    # Solo compiten los candidatos que representan igual de bien lo pedido. Sin
+    # esto, cualquier producto que apenas superara el umbral ganaba por ser el
+    # mas barato: buscando "leche" en ChangoMas, un chocolate de 30 g a $922 le
+    # ganaba a la leche de 1 L a $2.889.
+    mejor_puntaje = max(o.puntaje for o in aceptables)
+    competidores = [
+        o for o in aceptables if o.puntaje >= mejor_puntaje - MARGEN_DE_COMPETENCIA
+    ]
+
+    en_formato = [o for o in competidores if formato.contiene(o)]
+    # El respaldo se limita a la misma unidad: que falte el envase exacto
+    # justifica comprar dos paquetes de 500 g, no cotizar un chocolate de 30 g
+    # cuando lo que se compara son litros de leche.
+    if en_formato:
+        elegibles = en_formato
+    elif formato.es_libre:
+        elegibles = competidores
+    else:
+        elegibles = [o for o in competidores if o.unidad == formato.unidad]
+
+    if not elegibles:
+        return None, puntuados[:maximo_alternativas]
 
     # Entre los que representan al producto correcto decide el costo de cubrir
     # el pedido, no el precio de la etiqueta.
