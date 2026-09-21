@@ -1,0 +1,4 @@
+# Verificado con Python 3.14 en Windows. Las versiones son las minimas probadas.
+streamlit>=1.40
+requests>=2.32
+pandas>=2.2
