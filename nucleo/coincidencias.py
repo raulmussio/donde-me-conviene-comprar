@@ -66,7 +66,9 @@ def puntuar(item: ItemLista, oferta: Oferta) -> float:
     # El producto trae una palabra que cambia lo que es. "Leche chocolatada" no
     # es leche y "Detergente para ropa" no es detergente de vajilla, por mas que
     # el nombre empiece igual y comparta todas las palabras del pedido.
-    if modificadores_ajenos(pedidos, f"{oferta.nombre} {oferta.marca or ''}"):
+    if modificadores_ajenos(
+        item.texto, pedidos, f"{oferta.nombre} {oferta.marca or ''}"
+    ):
         return PESO_COBERTURA * 0.5
 
     # Unidad incompatible con la pedida: es otra forma del producto, no otro

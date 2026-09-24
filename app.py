@@ -151,22 +151,65 @@ def _clave_marca(indice: int) -> str:
 # ---------------------------------------------------------------------------
 
 
-def pantalla_lista(promos: list[Promo]) -> None:
-    """Primera pantalla: elegir los productos, como en una gondola.
+PASOS: list[tuple[str, str]] = [
+    ("productos", "Productos"),
+    ("cadenas", "Supermercados"),
+    ("pago", "Medios de pago"),
+    ("ajustes", "Marcas y envases"),
+    ("resultados", "Resultados"),
+]
 
-    Todo lo que hay que decidir antes de comparar se decide aca: que productos,
-    en que cadenas y con que se paga. Antes estaba repartido en una barra
-    lateral y habia que escribir la lista a mano, que obliga a saber de memoria
-    que se quiere comprar y como se escribe.
-    """
+
+def paso_actual() -> str:
+    return st.session_state.setdefault("paso", "productos")
+
+
+def ir_a(paso: str) -> None:
+    st.session_state["paso"] = paso
+    st.rerun()
+
+
+def seleccion_actual() -> dict[str, int]:
+    """Los productos elegidos y en que cantidad, en el orden en que se agregaron."""
+    return st.session_state.setdefault("seleccion", {})
+
+
+def cadenas_elegidas() -> list[str]:
+    return st.session_state.setdefault("cadenas", list(CADENAS))
+
+
+def _navegacion(
+    volver: str | None, avanzar: str | None, etiqueta: str, habilitado: bool = True
+) -> None:
+    """Los botones de ir y volver, iguales en todos los pasos."""
+    st.markdown("")
+    st.markdown('<div class="navegacion">', unsafe_allow_html=True)
+    columnas = st.columns([1, 1, 2])
+    if volver and columnas[0].button("← Volver", width="stretch"):
+        ir_a(volver)
+    if avanzar and columnas[2].button(
+        etiqueta, type="primary", width="stretch", disabled=not habilitado
+    ):
+        ir_a(avanzar)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+# ---------------------------------------------------------------------------
+# Paso 1: los productos
+# ---------------------------------------------------------------------------
+
+
+def paso_productos() -> None:
+    """Elegir que se va a comprar, de un menu por categorias."""
     st.markdown(
-        '<div class="hero"><h1>Arma tu lista</h1>'
-        "<p>Elegi lo que necesitas y compara el total en Carrefour, Coto, Jumbo, "
-        "Dia y ChangoMas, con las promociones bancarias de cada una.</p></div>",
+        '<div class="hero"><h1>¿Qué necesitás comprar?</h1>'
+        "<p>Elegí de las categorías y armá tu lista. Después vemos dónde sale "
+        "más barata.</p></div>",
         unsafe_allow_html=True,
     )
-    st.markdown("")
+    tema.barra_de_pasos(PASOS, "productos")
 
+    seleccion = seleccion_actual()
     columna_menu, columna_lista = st.columns([2.3, 1], gap="large")
 
     with columna_menu:
@@ -178,12 +221,9 @@ def pantalla_lista(promos: list[Promo]) -> None:
                 _grilla_de_productos(categoria)
 
     with columna_lista:
-        _panel_de_lista(promos)
+        _panel_de_lista(seleccion)
 
-
-def seleccion_actual() -> dict[str, int]:
-    """Los productos elegidos y en que cantidad, en el orden en que se agregaron."""
-    return st.session_state.setdefault("seleccion", {})
+    _navegacion(None, "cadenas", "Continuar →", habilitado=bool(seleccion))
 
 
 def _grilla_de_productos(categoria) -> None:
@@ -207,10 +247,8 @@ def _grilla_de_productos(categoria) -> None:
                 st.rerun()
 
 
-def _panel_de_lista(promos: list[Promo]) -> None:
-    """La lista armada hasta ahora, con las opciones y el boton de comparar."""
-    seleccion = seleccion_actual()
-
+def _panel_de_lista(seleccion: dict[str, int]) -> None:
+    """La lista armada hasta ahora, con su cantidad por producto."""
     st.markdown(
         f'<div class="panel-lista"><h3>Tu lista</h3>'
         f'<div class="nota">{len(seleccion)} producto'
@@ -221,14 +259,15 @@ def _panel_de_lista(promos: list[Promo]) -> None:
 
     if not seleccion:
         st.markdown(
-            '<div class="vacio">Todavia no elegiste nada.<br>Tocá los productos '
-            "del menu para agregarlos.</div>",
+            '<div class="vacio">Todavía no elegiste nada.<br>Tocá los productos '
+            "del menú para agregarlos.</div>",
             unsafe_allow_html=True,
         )
+
     for producto in list(seleccion):
         fila = st.columns([3, 2, 1], vertical_alignment="center")
         fila[0].markdown(
-            f'<div style="padding-top:.35rem">{producto[:1].upper()}{producto[1:]}</div>',
+            f'<div style="padding-top:.4rem">{producto[:1].upper()}{producto[1:]}</div>',
             unsafe_allow_html=True,
         )
         cantidad = fila[1].number_input(
@@ -246,7 +285,7 @@ def _panel_de_lista(promos: list[Promo]) -> None:
             st.rerun()
 
     agregado = st.text_input(
-        "Agregar algo que no este en el menu",
+        "¿No está en el menú?",
         placeholder="ej: pan de centeno",
         key="agregado_a_mano",
     )
@@ -258,84 +297,179 @@ def _panel_de_lista(promos: list[Promo]) -> None:
             st.rerun()
 
     if len(seleccion) >= MAXIMO_ITEMS:
-        st.caption(f"Llegaste al maximo de {MAXIMO_ITEMS} productos.")
-
-    with st.expander("Donde y como pagas"):
-        _opciones_de_compra(promos)
-
-    st.markdown("")
-    if st.button(
-        "Comparar precios",
-        type="primary",
-        width="stretch",
-        disabled=not seleccion,
-    ):
-        _ir_a_resultados(seleccion)
-
-    if seleccion and st.button("Vaciar lista", width="stretch"):
+        st.caption(f"Llegaste al máximo de {MAXIMO_ITEMS} productos.")
+    elif seleccion and st.button("Vaciar lista", width="stretch"):
         st.session_state["seleccion"] = {}
         st.rerun()
 
 
-def _opciones_de_compra(promos: list[Promo]) -> None:
-    """Cadenas, modalidad y medios de pago. Viven dentro del armado de la lista."""
-    st.multiselect(
-        "Cadenas a comparar",
-        options=list(CADENAS),
-        default=st.session_state.get("cadenas", list(CADENAS)),
-        format_func=lambda clave: CADENAS[clave].nombre,
-        key="cadenas",
+# ---------------------------------------------------------------------------
+# Paso 2: las cadenas
+# ---------------------------------------------------------------------------
+
+
+def paso_cadenas() -> None:
+    """Elegir contra que supermercados comparar."""
+    st.markdown(
+        '<div class="hero"><h1>¿Dónde querés comparar?</h1>'
+        "<p>Mientras más cadenas, mejor la comparación. Sacá las que no te "
+        "queden cerca.</p></div>",
+        unsafe_allow_html=True,
+    )
+    tema.barra_de_pasos(PASOS, "cadenas")
+
+    elegidas = cadenas_elegidas()
+    columnas = st.columns(len(CADENAS))
+    for columna, clave in zip(columnas, CADENAS):
+        activa = clave in elegidas
+        with columna:
+            st.markdown(
+                '<div style="text-align:center;line-height:1;margin-bottom:.3rem">'
+                f'<span class="punto" style="background:{tema.color_de(clave)};'
+                'width:.9rem;height:.9rem"></span></div>',
+                unsafe_allow_html=True,
+            )
+            if st.button(
+                f"✓ {CADENAS[clave].nombre}" if activa else CADENAS[clave].nombre,
+                key=f"cadena_{clave}",
+                type="primary" if activa else "secondary",
+                width="stretch",
+            ):
+                if activa and len(elegidas) > 1:
+                    elegidas.remove(clave)
+                elif not activa:
+                    elegidas.append(clave)
+                st.rerun()
+
+    st.markdown("")
+    st.markdown(
+        '<div class="nota">Cómo vas a comprar cambia qué promociones aplican: hay '
+        "descuentos que valen solo en el local y otros solo por la web.</div>",
+        unsafe_allow_html=True,
     )
     st.radio(
-        "Como vas a comprar",
+        "Cómo vas a comprar",
         options=["sucursal", "online"],
         horizontal=True,
         format_func=lambda v: "En sucursal" if v == "sucursal" else "Por la web",
         key="modalidad",
-        help="Hay promociones que valen solo en el local y otras solo online.",
     )
-    st.multiselect(
-        "Tus bancos y billeteras",
-        options=_entidades_de(promos),
-        format_func=nombre_entidad,
-        key="entidades",
-        help="Solo se aplican las promociones de lo que elijas aca.",
+
+    _navegacion("productos", "pago", "Continuar →", habilitado=bool(elegidas))
+
+
+# ---------------------------------------------------------------------------
+# Paso 3: los medios de pago
+# ---------------------------------------------------------------------------
+
+
+def paso_pago(promos: list[Promo]) -> None:
+    """Elegir con que se paga, que es lo que habilita los descuentos."""
+    st.markdown(
+        '<div class="hero"><h1>¿Con qué vas a pagar?</h1>'
+        "<p>Elegí tus bancos y billeteras. Solo se aplican los descuentos de lo "
+        "que marques acá.</p></div>",
+        unsafe_allow_html=True,
     )
+    tema.barra_de_pasos(PASOS, "pago")
+
+    elegidas = st.session_state.setdefault("entidades", [])
+    columnas = st.columns(4)
+    for indice, clave in enumerate(_entidades_de(promos)):
+        activa = clave in elegidas
+        with columnas[indice % 4]:
+            nombre = nombre_entidad(clave)
+            if st.button(
+                f"✓ {nombre}" if activa else nombre,
+                key=f"entidad_{clave}",
+                type="primary" if activa else "secondary",
+                width="stretch",
+            ):
+                if activa:
+                    elegidas.remove(clave)
+                else:
+                    elegidas.append(clave)
+                st.rerun()
+
+    st.markdown("")
     st.checkbox(
         "Incluir promos sin banco identificado",
         key="incluir_sin_banco",
         help=(
             "Algunas promos no nombran al banco en un campo legible: son de la "
             "tarjeta propia de la cadena o tienen el texto armado a mano. "
-            "Activalo para verlas, sabiendo que quiza no te apliquen."
+            "Activalo para verlas, sabiendo que quizá no te apliquen."
         ),
     )
+    if not elegidas:
+        st.markdown(
+            '<div class="nota">Podés seguir sin elegir ninguno, pero entonces la '
+            "comparación va a ser solo por precio de lista.</div>",
+            unsafe_allow_html=True,
+        )
+
+    _navegacion("cadenas", "ajustes", "Buscar precios →")
 
 
-def _ir_a_resultados(seleccion: dict[str, int]) -> None:
-    """Congela la lista elegida y pasa a la comparacion."""
-    items = [
+# ---------------------------------------------------------------------------
+# Paso 4: marcas y envases
+# ---------------------------------------------------------------------------
+
+
+def paso_ajustes() -> None:
+    """Revisar que marca y que envase se compara, antes de ver los totales."""
+    st.markdown(
+        '<div class="hero"><h1>¿Alguna marca en particular?</h1>'
+        "<p>Ya buscamos tu lista en cada cadena. Así quedó lo que se va a "
+        "comparar: cambiá lo que no sea lo que querías.</p></div>",
+        unsafe_allow_html=True,
+    )
+    tema.barra_de_pasos(PASOS, "ajustes")
+
+    resultado = _resultado_actual()
+    if resultado is None:
+        return
+
+    selectores_por_producto(resultado)
+    _navegacion("pago", "resultados", "Ver comparación →")
+
+
+def _resultado_actual() -> Resultado | None:
+    """Busca la lista en las cadenas elegidas y arma la cotizacion.
+
+    Lo usan el paso de marcas y el de resultados. La busqueda esta cacheada, asi
+    que ir y volver entre los dos no vuelve a consultar los sitios.
+    """
+    items = _items_de_la_seleccion()
+    cadenas = cadenas_elegidas()
+    if not items or not cadenas:
+        ir_a("productos")
+        return None
+
+    with st.spinner(f"Buscando {len(items)} productos en {len(cadenas)} cadenas..."):
+        candidatos, errores = buscar_cacheado(tuple(items), tuple(cadenas))
+
+    resultado = Resultado(
+        items=list(items),
+        cadenas=list(cadenas),
+        candidatos=candidatos,
+        errores=errores,
+    )
+    fijadas = marcas_elegidas(resultado)
+    armar(resultado, formatos_elegidos(resultado, fijadas), fijadas)
+    return resultado
+
+
+def _items_de_la_seleccion() -> list[ItemLista]:
+    """Convierte lo elegido en el menu a items de lista."""
+    return [
         item
         for item in (
             parsear_linea(f"{cantidad}x {texto}")
-            for texto, cantidad in seleccion.items()
+            for texto, cantidad in seleccion_actual().items()
         )
         if item
     ]
-    if not items:
-        return
-    # Cambiar la lista invalida los envases y marcas fijados a mano: los indices
-    # ya no apuntan al mismo producto.
-    for clave in [
-        k for k in st.session_state if k.startswith(("formato_", "marca_"))
-    ]:
-        del st.session_state[clave]
-    st.session_state["items_activos"] = items
-    st.session_state["cadenas_activas"] = st.session_state.get(
-        "cadenas", list(CADENAS)
-    )
-    st.session_state["paso"] = "resultados"
-    st.rerun()
 
 
 def _entidades_de(promos: list[Promo]) -> list[str]:
@@ -781,25 +915,39 @@ def _pasa_filtro(promo: Promo, preferencias: Preferencias) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def pantalla_resultados(promos: list[Promo], fallos: dict[str, str]) -> None:
-    """Segunda pantalla: la comparacion de la lista ya armada."""
-    encabezado = st.columns([1, 4], vertical_alignment="center")
-    if encabezado[0].button("← Editar lista", width="stretch"):
-        st.session_state["paso"] = "lista"
-        st.rerun()
-
-    items_activos: list[ItemLista] = st.session_state.get("items_activos") or []
-    cadenas_activas: list[str] = st.session_state.get("cadenas_activas") or []
-    if not items_activos or not cadenas_activas:
-        st.session_state["paso"] = "lista"
-        st.rerun()
+def paso_resultados(promos: list[Promo], fallos: dict[str, str]) -> None:
+    """Ultimo paso: donde conviene comprar la lista ya ajustada."""
+    resultado = _resultado_actual()
+    if resultado is None:
         return
 
-    encabezado[1].markdown(
-        f'<div class="nota" style="padding-top:.4rem">Comparando '
-        f"{len(items_activos)} productos en {len(cadenas_activas)} cadenas.</div>",
+    preferencias = Preferencias(
+        entidades=frozenset(st.session_state.get("entidades") or ()),
+        modalidad=st.session_state.get("modalidad", "sucursal"),
+        incluir_sin_banco=bool(st.session_state.get("incluir_sin_banco")),
+    )
+    hoy = dt.date.today()
+    veredictos = evaluar(
+        resultado.cotizaciones, promos, dia=hoy, preferencias=preferencias
+    )
+    ganador = veredictos[0] if veredictos else None
+
+    st.markdown(
+        '<div class="hero"><h1>'
+        + (
+            f"Te conviene {ganador.nombre}"
+            if ganador
+            else "No pudimos comparar tu lista"
+        )
+        + "</h1><p>"
+        + (
+            f"{len(resultado.items)} productos en "
+            f"{len(resultado.cadenas)} cadenas, con los precios de ahora."
+        )
+        + "</p></div>",
         unsafe_allow_html=True,
     )
+    tema.barra_de_pasos(PASOS, "resultados")
 
     if fallos:
         detalle = ", ".join(
@@ -811,56 +959,26 @@ def pantalla_resultados(promos: list[Promo], fallos: dict[str, str]) -> None:
             f"descuento. ({detalle})"
         )
 
-    with st.spinner(
-        f"Buscando {len(items_activos)} productos en {len(cadenas_activas)} cadenas..."
-    ):
-        candidatos, errores = buscar_cacheado(
-            tuple(items_activos), tuple(cadenas_activas)
-        )
-
-    resultado = Resultado(
-        items=list(items_activos),
-        cadenas=list(cadenas_activas),
-        candidatos=candidatos,
-        errores=errores,
-    )
-    fijadas = marcas_elegidas(resultado)
-    armar(resultado, formatos_elegidos(resultado, fijadas), fijadas)
-
-    preferencias = Preferencias(
-        entidades=frozenset(st.session_state.get("entidades") or ()),
-        modalidad=st.session_state.get("modalidad", "sucursal"),
-        incluir_sin_banco=bool(st.session_state.get("incluir_sin_banco")),
-    )
-
-    hoy = dt.date.today()
-    veredictos = evaluar(
-        resultado.cotizaciones, promos, dia=hoy, preferencias=preferencias
-    )
-
     if not preferencias.entidades:
         st.info(
-            "Volve a la lista y agrega tus bancos o billeteras en **Donde y como "
-            "pagas**: la comparacion va a incluir los descuentos que te correspondan."
+            "Volvé al paso de medios de pago y elegí tus bancos: la comparación "
+            "va a incluir los descuentos que te correspondan."
         )
 
-    tema.titulo("Donde comprar hoy", f"{DIAS_SEMANA[hoy.weekday()]} {hoy:%d/%m}")
-    mostrar_ranking(veredictos, total_items=len(items_activos))
+    mostrar_ranking(veredictos, total_items=len(resultado.items))
 
     pestanas = st.tabs(
-        ["Detalle por producto", "Proximos 7 dias", "Promociones vigentes"]
+        ["Detalle por producto", "Próximos 7 días", "Promociones vigentes"]
     )
 
     with pestanas[0]:
-        selectores_por_producto(resultado)
-        st.markdown("---")
         tabla_por_producto(resultado)
 
     with pestanas[1]:
-        tema.titulo("Que dia conviene comprar", "con los precios de hoy")
+        tema.titulo("Qué día conviene comprar", "con los precios de hoy")
         st.markdown(
-            '<div class="nota">Los precios son los de ahora: lo que cambia dia a '
-            "dia son las promociones bancarias, que se conocen de antemano.</div>",
+            '<div class="nota">Los precios son los de ahora: lo que cambia día a '
+            "día son las promociones bancarias, que se conocen de antemano.</div>",
             unsafe_allow_html=True,
         )
         st.markdown("")
@@ -873,22 +991,40 @@ def pantalla_resultados(promos: list[Promo], fallos: dict[str, str]) -> None:
 
     with pestanas[2]:
         tema.titulo("Promociones vigentes", "filtradas por tus medios de pago")
-        mostrar_promociones(promos, cadenas_activas, preferencias, hoy)
+        mostrar_promociones(promos, resultado.cadenas, preferencias, hoy)
+
+    st.markdown("")
+    st.markdown('<div class="navegacion">', unsafe_allow_html=True)
+    columnas = st.columns([1, 1, 2])
+    if columnas[0].button("← Marcas y envases", width="stretch"):
+        ir_a("ajustes")
+    if columnas[1].button("Editar lista", width="stretch"):
+        ir_a("productos")
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 def main() -> None:
-    """Dos pantallas: primero se arma la lista, despues se compara.
+    """Un paso por pantalla, en el orden en que se toman las decisiones.
 
-    Separarlas es lo que hace que la app se parezca a comprar y no a llenar un
-    formulario: primero elegis, despues ves cuanto sale y donde.
+    Primero que comprar, despues donde, despues con que se paga y recien
+    entonces los precios. Cada pantalla hace una sola pregunta: antes estaba
+    todo junto en una barra lateral y habia que entender la app entera antes de
+    poder usarla.
     """
     with st.spinner("Leyendo las promociones de las cinco cadenas..."):
         promos, fallos = cargar_promociones()
 
-    if st.session_state.get("paso") == "resultados":
-        pantalla_resultados(promos, fallos)
+    paso = paso_actual()
+    if paso == "cadenas":
+        paso_cadenas()
+    elif paso == "pago":
+        paso_pago(promos)
+    elif paso == "ajustes":
+        paso_ajustes()
+    elif paso == "resultados":
+        paso_resultados(promos, fallos)
     else:
-        pantalla_lista(promos)
+        paso_productos()
 
 
 if __name__ == "__main__":

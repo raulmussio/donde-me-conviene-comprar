@@ -1,19 +1,20 @@
-# Tema oscuro de la aplicacion.
+# Tema claro de la aplicacion.
 #
 # Streamlit no permite fijar el tema desde codigo: solo por configuracion. Sin
-# este archivo los widgets nativos se dibujan claros y sus etiquetas quedan
-# ilegibles sobre el fondo oscuro.
+# este archivo los widgets nativos se dibujan con el tema por defecto y no
+# combinan con el resto.
 #
-# Los colores son los mismos que declara `ui/tema.py`; si cambias alli, cambia aqui.
+# Los colores son los mismos que declara `ui/tema.py`; si cambias alli, cambia
+# aqui.
 
 [theme]
-base = "dark"
-primaryColor = "#22C55E"
-backgroundColor = "#0C1117"
-secondaryBackgroundColor = "#151B24"
-textColor = "#E6EDF3"
-borderColor = "#242C3D"
-dataframeBorderColor = "#242C3D"
-dataframeHeaderBackgroundColor = "#1A212C"
-baseRadius = "0.6rem"
-showSidebarBorder = true
+base = "light"
+primaryColor = "#FF5A1F"
+backgroundColor = "#F6F7F9"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#15181D"
+borderColor = "#E6E8EC"
+dataframeBorderColor = "#E6E8EC"
+dataframeHeaderBackgroundColor = "#F1F3F6"
+baseRadius = "0.75rem"
+showSidebarBorder = false

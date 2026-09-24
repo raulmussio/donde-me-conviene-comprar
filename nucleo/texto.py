@@ -36,7 +36,10 @@ EQUIVALENCIAS: tuple[tuple[str, ...], ...] = (
     ("detergente", "lavavajilla", "lavavajillas"),
     ("descremado", "descremada", "desnatada"),
     ("semidescremado", "semidescremada"),
-    ("light", "dietetica", "dietetico", "diet"),
+    # Todas las formas de nombrar la version sin azucar caen en "light", que
+    # ademas es un modificador excluyente: quien pide "coca cola" quiere la
+    # comun, y quien quiere la otra escribe "coca cola zero".
+    ("light", "zero", "cero", "liviano", "liviana", "dietetica", "dietetico", "diet"),
     ("integral", "integrales"),
 )
 
@@ -70,6 +73,11 @@ MODIFICADORES_EXCLUYENTES = frozenset(
         "chips",
         "rallado",
         "untable",
+        # La version sin azucar. "Coca-Cola Zero" tiene un nombre mas corto que
+        # "Gaseosa Coca-Cola Sabor Original", asi que arrastra menos palabras
+        # ajenas y puntuaba mas alto: las cinco cadenas terminaban cotizando la
+        # Zero para quien pedia una Coca comun.
+        "light",
         # No cambia el producto pero si el precio: el de una botella retornable
         # no incluye el envase, asi que no se puede comparar contra el de una
         # descartable.
@@ -272,10 +280,43 @@ def formatear_envase(magnitud: float | None, unidad: str | None) -> str:
     return f"{magnitud:g} un"
 
 
-def modificadores_ajenos(pedido: set[str], nombre: str) -> set[str]:
-    """Modificadores excluyentes que trae el producto y que el pedido no pidio."""
+# Lo mismo que MODIFICADORES_EXCLUYENTES pero para lo que se dice con varias
+# palabras. Hace falta porque "azucar" sola no sirve como senal: es el nombre de
+# un producto, y tomarla como modificador haria que pedir azucar trajera
+# cualquier cosa que diga "light". En cambio "sin azucares" solo aparece cuando
+# es la version sin azucar de otra cosa.
+FRASES_EXCLUYENTES: tuple[str, ...] = (
+    "sin azucar",
+    "sin azucares",
+    "menos azucares",
+    "cero azucar",
+    "sin lactosa",
+    "sin gluten",
+    "para ropa",
+    "para lavarropas",
+)
+
+
+def modificadores_ajenos(pedido_texto: str, pedido: set[str], nombre: str) -> set[str]:
+    """Lo que el producto agrega y cambia lo que es, y que el pedido no pidio.
+
+    Mira palabras sueltas y tambien frases: la version sin azucar de una gaseosa
+    puede venir como "Zero", como "sin azucares" o como "menos azucares", y las
+    tres significan lo mismo.
+    """
     presentes = MODIFICADORES_EXCLUYENTES & set(tokenizar_ordenado(nombre))
-    return presentes - pedido
+    ajenos = presentes - pedido
+
+    # Las frases se comparan contra el texto del pedido tal como se escribio, no
+    # contra sus tokens: "para" es una palabra vacia y desaparece al tokenizar,
+    # asi que quien pide "jabon liquido para ropa" perderia justo la frase que
+    # lo identifica y se quedaria sin ningun resultado.
+    texto = normalizar(nombre)
+    consulta = normalizar(pedido_texto)
+    for frase in FRASES_EXCLUYENTES:
+        if frase in texto and frase not in consulta:
+            ajenos = ajenos | {frase}
+    return ajenos
 
 
 def variantes_de_consulta(consulta: str) -> list[str]:

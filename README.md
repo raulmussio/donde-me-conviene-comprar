@@ -14,22 +14,29 @@ streamlit run app.py
 
 ## Como se usa
 
-La app tiene dos pantallas, en ese orden:
+Un paso por pantalla, en el orden en que se toman las decisiones:
 
-1. **Arma tu lista.** Los productos estan agrupados por categoria, como en una
-   gondola, y se agregan tocandolos. Ahi mismo se eligen las cadenas a comparar,
-   si vas a comprar en sucursal o por la web, y tus bancos y billeteras. Lo que
-   no este en el menu se puede escribir a mano.
-2. **La comparacion.** El ranking de las cinco cadenas, el detalle producto por
-   producto con sus selectores de marca y envase, el calendario de los proximos
-   siete dias y las promociones vigentes.
+1. **Productos.** Un menu por categorias, como una gondola: se tocan para
+   agregarlos y la lista se arma al costado con su cantidad. Lo que no este se
+   escribe a mano.
+2. **Supermercados.** Contra cuales comparar, y si vas a comprar en sucursal o
+   por la web.
+3. **Medios de pago.** Tus bancos y billeteras, que es lo que habilita los
+   descuentos.
+4. **Marcas y envases.** Recien aca se consultan los precios, y se muestra que
+   quedo elegido en cada producto **antes** de ver los totales, para poder
+   corregirlo.
+5. **Resultados.** El ranking de las cadenas, el detalle producto por producto,
+   el calendario de los proximos siete dias y las promociones vigentes.
 
-Las categorias salen del arbol real que publica Carrefour
-(`/api/catalog_system/pub/category/tree/2`), agrupadas para una lista de
-compras. Lo que se guarda en `nucleo/catalogo.py` no son productos concretos
-sino **lo que se busca**: "leche entera", no "Leche Entera La Serenisima 1 L".
-Que marca y que envase se comparan lo deciden las reglas de mas abajo con lo que
-cada cadena tenga ese dia.
+Las categorias no salen de una sola cadena sino del cruce de los arboles que
+publican las cuatro que corren sobre VTEX. Cada una arma el suyo distinto:
+Carrefour separa "Desayuno y merienda" de "Almacen", Dia los junta, Jumbo llama
+"Frescos" a lo que otra llama "Lacteos y productos frescos". Quedarse con una
+sola dejaba rubros enteros afuera.
+
+Lo que se guarda en `nucleo/catalogo.py` no son productos concretos sino **lo
+que se busca**: "leche entera", no "Leche Entera La Serenisima 1 L".
 
 ---
 
@@ -266,6 +273,14 @@ escribe "leche chocolatada" quiere exactamente eso.
 En esa lista tambien esta **retornable**, por otro motivo: el precio de una
 botella retornable no incluye el envase, asi que ponerlo a competir contra una
 descartable es comparar dos numeros que no miden lo mismo.
+
+Y estan las formas de nombrar la version sin azucar. "Coca-Cola Zero" tiene un
+nombre mas corto que "Gaseosa Coca-Cola Sabor Original", asi que arrastra menos
+palabras ajenas y puntuaba mas alto: las cinco cadenas terminaban cotizando la
+Zero para quien pedia una Coca comun. Como la misma variante viene escrita como
+"Zero", como "sin azucares" o como "menos azucares", hay tambien una lista de
+**frases** excluyentes: "azucar" sola no sirve como senal, porque es el nombre
+de un producto.
 
 ### Ademas: los supermercados no conocen sinonimos
 
