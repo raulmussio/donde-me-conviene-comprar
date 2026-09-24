@@ -22,7 +22,8 @@ from motor.decision import Preferencias, calendario, evaluar, tiene_medio
 from nucleo import formato as formatos
 from nucleo import marca as marcas
 from nucleo.formato import Formato
-from nucleo.lista import MAXIMO_ITEMS, parsear_lista
+from nucleo.catalogo import CATEGORIAS
+from nucleo.lista import MAXIMO_ITEMS, parsear_linea
 from nucleo.modelos import CotizacionCadena, ItemLista, Oferta, Promo, Veredicto
 from nucleo.texto import formatear_envase, pesos
 from precios import registro, zonas
@@ -61,7 +62,7 @@ st.set_page_config(
     page_title="Donde me conviene comprar",
     page_icon="$",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 tema.aplicar()
 
@@ -82,7 +83,6 @@ def cargar_promociones() -> tuple[list[Promo], dict[str, str]]:
 def buscar_cacheado(
     items: tuple[ItemLista, ...],
     cadenas: tuple[str, ...],
-    zona_clave: str,
 ) -> tuple[dict[tuple[str, int], list[Oferta]], dict[str, str]]:
     """Trae los candidatos crudos de las cadenas.
 
@@ -91,28 +91,18 @@ def buscar_cacheado(
     permite que cambiar el envase con el que se compara no vuelva a consultar
     los cinco sitios.
     """
-    return buscar(list(items), list(cadenas), zona=zonas.zona_de(zona_clave))
+    # La zona no se elige: se consulta siempre la de CABA. Deja de ser una
+    # pregunta al usuario, que no aportaba casi nada al precio, pero se sigue
+    # usando internamente porque evita que a Coto se le cuele el precio de una
+    # sucursal del interior. Ver `precios/zonas.py`.
+    return buscar(
+        list(items), list(cadenas), zona=zonas.zona_de(zonas.ZONA_POR_DEFECTO)
+    )
 
 
 def _etiqueta_marca(opcion: marcas.Marca) -> str:
     """Como se muestra una marca en el selector, con en cuantas cadenas existe."""
     return f"{opcion.etiqueta}  ({len(opcion.cadenas)})"
-
-
-@st.cache_data(ttl=TTL_PROMOS, show_spinner=False)
-def sucursales_cacheadas(
-    cadenas: tuple[str, ...], zona_clave: str
-) -> dict[str, list[zonas.Sucursal]]:
-    """Sucursales de cada cadena en la zona. Cambian poco, se cachean como las promos."""
-    zona = zonas.zona_de(zona_clave)
-    sesion = nueva_sesion()
-    try:
-        return {
-            clave: registro.sucursales(sesion, clave_cadena=clave, zona=zona)
-            for clave in cadenas
-        }
-    finally:
-        sesion.close()
 
 
 def marcas_elegidas(resultado: Resultado) -> list[str]:
@@ -161,85 +151,191 @@ def _clave_marca(indice: int) -> str:
 # ---------------------------------------------------------------------------
 
 
-def barra_lateral(promos: list[Promo]) -> dict:
-    """Dibuja los controles y devuelve lo elegido."""
-    with st.sidebar:
-        st.markdown("### Tu lista")
-        texto = st.text_area(
-            "Un producto por linea",
-            value=LISTA_EJEMPLO,
-            height=210,
-            key="lista",
-            help=(
-                "Escribi cantidad y tamano si te importan: '2x leche 1L' busca "
-                "dos litros. Sin tamano, compara cualquier envase."
-            ),
-        )
+def pantalla_lista(promos: list[Promo]) -> None:
+    """Primera pantalla: elegir los productos, como en una gondola.
 
-        st.markdown("### Donde")
-        zona = st.selectbox(
-            "Tu zona",
-            options=list(zonas.ZONAS),
-            index=list(zonas.ZONAS).index(zonas.ZONA_POR_DEFECTO),
-            format_func=lambda clave: zonas.ZONAS[clave].nombre,
-            help=(
-                "Define que lista de precios se consulta. Carrefour y Dia cotizan "
-                "igual en toda el area metropolitana; ChangoMas cambia entre CABA "
-                "y el oeste y el sur del conurbano. Jumbo no publica precios por "
-                "zona: se informa el de su tienda online."
-            ),
-        )
-        cadenas = st.multiselect(
-            "Cadenas a comparar",
-            options=list(CADENAS),
-            default=list(CADENAS),
-            format_func=lambda clave: CADENAS[clave].nombre,
-        )
-        modalidad = st.radio(
-            "Como vas a comprar",
-            options=["sucursal", "online"],
-            index=0,
-            horizontal=True,
-            format_func=lambda v: "En sucursal" if v == "sucursal" else "Por la web",
-            help="Hay promociones que valen solo en el local y otras solo online.",
-        )
+    Todo lo que hay que decidir antes de comparar se decide aca: que productos,
+    en que cadenas y con que se paga. Antes estaba repartido en una barra
+    lateral y habia que escribir la lista a mano, que obliga a saber de memoria
+    que se quiere comprar y como se escribe.
+    """
+    st.markdown(
+        '<div class="hero"><h1>Arma tu lista</h1>'
+        "<p>Elegi lo que necesitas y compara el total en Carrefour, Coto, Jumbo, "
+        "Dia y ChangoMas, con las promociones bancarias de cada una.</p></div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown("")
 
-        st.markdown("### Con que pagas")
-        entidades = st.multiselect(
-            "Tus bancos y billeteras",
-            options=_entidades_de(promos),
-            default=[],
-            format_func=nombre_entidad,
-            key="entidades",
-            help="Solo se aplican las promociones de lo que elijas aca.",
-        )
-        incluir_sin_banco = st.checkbox(
-            "Incluir promos sin banco identificado",
-            value=False,
-            help=(
-                "Algunas promos no nombran al banco en un campo legible: son de "
-                "la tarjeta propia de la cadena o tienen el texto armado a mano. "
-                "Activalo para verlas, sabiendo que quiza no te apliquen."
-            ),
-        )
+    columna_menu, columna_lista = st.columns([2.3, 1], gap="large")
 
-        st.markdown("---")
-        comparar = st.button(
-            "Comparar precios", type="primary", width="stretch"
+    with columna_menu:
+        pestanas = st.tabs(
+            [f"{categoria.icono} {categoria.nombre}" for categoria in CATEGORIAS]
         )
-        if st.button("Actualizar promociones", width="stretch"):
-            cargar_promociones.clear()
+        for pestana, categoria in zip(pestanas, CATEGORIAS):
+            with pestana:
+                _grilla_de_productos(categoria)
+
+    with columna_lista:
+        _panel_de_lista(promos)
+
+
+def seleccion_actual() -> dict[str, int]:
+    """Los productos elegidos y en que cantidad, en el orden en que se agregaron."""
+    return st.session_state.setdefault("seleccion", {})
+
+
+def _grilla_de_productos(categoria) -> None:
+    """Los productos de una categoria, como botones que se prenden y apagan."""
+    seleccion = seleccion_actual()
+    columnas = st.columns(3)
+    for indice, producto in enumerate(categoria.productos):
+        elegido = producto in seleccion
+        with columnas[indice % 3]:
+            etiqueta = categoria.etiqueta_de(producto)
+            if st.button(
+                f"✓ {etiqueta}" if elegido else etiqueta,
+                key=f"producto_{categoria.clave}_{indice}",
+                type="primary" if elegido else "secondary",
+                width="stretch",
+            ):
+                if elegido:
+                    seleccion.pop(producto, None)
+                elif len(seleccion) < MAXIMO_ITEMS:
+                    seleccion[producto] = 1
+                st.rerun()
+
+
+def _panel_de_lista(promos: list[Promo]) -> None:
+    """La lista armada hasta ahora, con las opciones y el boton de comparar."""
+    seleccion = seleccion_actual()
+
+    st.markdown(
+        f'<div class="panel-lista"><h3>Tu lista</h3>'
+        f'<div class="nota">{len(seleccion)} producto'
+        f'{"s" if len(seleccion) != 1 else ""}</div></div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown("")
+
+    if not seleccion:
+        st.markdown(
+            '<div class="vacio">Todavia no elegiste nada.<br>Tocá los productos '
+            "del menu para agregarlos.</div>",
+            unsafe_allow_html=True,
+        )
+    for producto in list(seleccion):
+        fila = st.columns([3, 2, 1], vertical_alignment="center")
+        fila[0].markdown(
+            f'<div style="padding-top:.35rem">{producto[:1].upper()}{producto[1:]}</div>',
+            unsafe_allow_html=True,
+        )
+        cantidad = fila[1].number_input(
+            "Cantidad",
+            min_value=1,
+            max_value=20,
+            value=seleccion[producto],
+            step=1,
+            key=f"cantidad_{producto}",
+            label_visibility="collapsed",
+        )
+        seleccion[producto] = int(cantidad)
+        if fila[2].button("✕", key=f"quitar_{producto}", help="Quitar de la lista"):
+            seleccion.pop(producto, None)
             st.rerun()
 
-    return {
-        "texto": texto,
-        "zona": zona,
-        "cadenas": cadenas,
-        "modalidad": modalidad,
-        "entidades": entidades,
-        "incluir_sin_banco": incluir_sin_banco,
-        "comparar": comparar,
-    }
+    agregado = st.text_input(
+        "Agregar algo que no este en el menu",
+        placeholder="ej: pan de centeno",
+        key="agregado_a_mano",
+    )
+    if agregado and agregado.strip():
+        texto = agregado.strip().lower()
+        if texto not in seleccion and len(seleccion) < MAXIMO_ITEMS:
+            seleccion[texto] = 1
+            st.session_state["agregado_a_mano"] = ""
+            st.rerun()
+
+    if len(seleccion) >= MAXIMO_ITEMS:
+        st.caption(f"Llegaste al maximo de {MAXIMO_ITEMS} productos.")
+
+    with st.expander("Donde y como pagas"):
+        _opciones_de_compra(promos)
+
+    st.markdown("")
+    if st.button(
+        "Comparar precios",
+        type="primary",
+        width="stretch",
+        disabled=not seleccion,
+    ):
+        _ir_a_resultados(seleccion)
+
+    if seleccion and st.button("Vaciar lista", width="stretch"):
+        st.session_state["seleccion"] = {}
+        st.rerun()
+
+
+def _opciones_de_compra(promos: list[Promo]) -> None:
+    """Cadenas, modalidad y medios de pago. Viven dentro del armado de la lista."""
+    st.multiselect(
+        "Cadenas a comparar",
+        options=list(CADENAS),
+        default=st.session_state.get("cadenas", list(CADENAS)),
+        format_func=lambda clave: CADENAS[clave].nombre,
+        key="cadenas",
+    )
+    st.radio(
+        "Como vas a comprar",
+        options=["sucursal", "online"],
+        horizontal=True,
+        format_func=lambda v: "En sucursal" if v == "sucursal" else "Por la web",
+        key="modalidad",
+        help="Hay promociones que valen solo en el local y otras solo online.",
+    )
+    st.multiselect(
+        "Tus bancos y billeteras",
+        options=_entidades_de(promos),
+        format_func=nombre_entidad,
+        key="entidades",
+        help="Solo se aplican las promociones de lo que elijas aca.",
+    )
+    st.checkbox(
+        "Incluir promos sin banco identificado",
+        key="incluir_sin_banco",
+        help=(
+            "Algunas promos no nombran al banco en un campo legible: son de la "
+            "tarjeta propia de la cadena o tienen el texto armado a mano. "
+            "Activalo para verlas, sabiendo que quiza no te apliquen."
+        ),
+    )
+
+
+def _ir_a_resultados(seleccion: dict[str, int]) -> None:
+    """Congela la lista elegida y pasa a la comparacion."""
+    items = [
+        item
+        for item in (
+            parsear_linea(f"{cantidad}x {texto}")
+            for texto, cantidad in seleccion.items()
+        )
+        if item
+    ]
+    if not items:
+        return
+    # Cambiar la lista invalida los envases y marcas fijados a mano: los indices
+    # ya no apuntan al mismo producto.
+    for clave in [
+        k for k in st.session_state if k.startswith(("formato_", "marca_"))
+    ]:
+        del st.session_state[clave]
+    st.session_state["items_activos"] = items
+    st.session_state["cadenas_activas"] = st.session_state.get(
+        "cadenas", list(CADENAS)
+    )
+    st.session_state["paso"] = "resultados"
+    st.rerun()
 
 
 def _entidades_de(promos: list[Promo]) -> list[str]:
@@ -335,13 +431,6 @@ def _tarjeta_cadena(
         )
 
     etiquetas: list[str] = []
-    # Si la cadena no publica precios por zona, hay que decirlo donde se lee el
-    # precio: con "GBA Sur" elegido arriba, nadie supondria que una de las cinco
-    # esta mostrando otra cosa.
-    if not CADENAS[veredicto.cadena].soporta_zona:
-        etiquetas.append(
-            '<span class="etiqueta">precio de su tienda online, no por zona</span>'
-        )
     if cotizacion.encontrados < total_items:
         faltan = total_items - cotizacion.encontrados
         etiquetas.append(
@@ -678,40 +767,6 @@ def mostrar_promociones(
     st.dataframe(tabla, width="stretch", hide_index=True)
 
 
-def mostrar_sucursales(
-    por_cadena: dict[str, list[zonas.Sucursal]], zona: zonas.Zona
-) -> None:
-    """Donde quedan los locales de cada cadena en la zona elegida."""
-    st.markdown(
-        '<div class="nota">Los precios de arriba son los de esta zona. Estas son '
-        "las sucursales donde comprarlos, ordenadas por cercania al centro de la "
-        "zona.</div>",
-        unsafe_allow_html=True,
-    )
-    st.markdown("")
-
-    columnas = st.columns(min(3, max(1, len(por_cadena))))
-    for indice, (clave, sucursales) in enumerate(por_cadena.items()):
-        with columnas[indice % len(columnas)]:
-            color = tema.color_de(clave)
-            st.markdown(
-                f'<div class="nombre-cadena" style="margin-bottom:.4rem">'
-                f'<span class="punto" style="background:{color}"></span>'
-                f"{CADENAS[clave].nombre}</div>",
-                unsafe_allow_html=True,
-            )
-            if not sucursales:
-                st.markdown(
-                    '<div class="nota">No publica un listado de sucursales.</div>',
-                    unsafe_allow_html=True,
-                )
-                continue
-            cuerpo = "".join(
-                f"<div>{sucursal.etiqueta}</div>" for sucursal in sucursales
-            )
-            st.markdown(f'<div class="nota">{cuerpo}</div>', unsafe_allow_html=True)
-
-
 def _pasa_filtro(promo: Promo, preferencias: Preferencias) -> bool:
     """Mismo criterio de medios de pago que usa el motor, para no mostrar de mas."""
     if preferencias.modalidad == "sucursal" and promo.solo_online:
@@ -726,20 +781,25 @@ def _pasa_filtro(promo: Promo, preferencias: Preferencias) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def main() -> None:
-    st.title("Donde me conviene comprar")
-    st.markdown(
-        '<div class="nota">Compara tu lista en Carrefour, Coto, Jumbo, Dia y '
-        "ChangoMas con los precios publicados ahora, y le aplica las promociones "
-        "bancarias vigentes de cada cadena.</div>",
+def pantalla_resultados(promos: list[Promo], fallos: dict[str, str]) -> None:
+    """Segunda pantalla: la comparacion de la lista ya armada."""
+    encabezado = st.columns([1, 4], vertical_alignment="center")
+    if encabezado[0].button("← Editar lista", width="stretch"):
+        st.session_state["paso"] = "lista"
+        st.rerun()
+
+    items_activos: list[ItemLista] = st.session_state.get("items_activos") or []
+    cadenas_activas: list[str] = st.session_state.get("cadenas_activas") or []
+    if not items_activos or not cadenas_activas:
+        st.session_state["paso"] = "lista"
+        st.rerun()
+        return
+
+    encabezado[1].markdown(
+        f'<div class="nota" style="padding-top:.4rem">Comparando '
+        f"{len(items_activos)} productos en {len(cadenas_activas)} cadenas.</div>",
         unsafe_allow_html=True,
     )
-    st.markdown("")
-
-    with st.spinner("Leyendo las promociones de las cinco cadenas..."):
-        promos, fallos = cargar_promociones()
-
-    eleccion = barra_lateral(promos)
 
     if fallos:
         detalle = ", ".join(
@@ -751,46 +811,11 @@ def main() -> None:
             f"descuento. ({detalle})"
         )
 
-    items = parsear_lista(eleccion["texto"])
-    if not items:
-        st.info("Escribi tu lista de compras en la barra lateral para empezar.")
-        return
-    if len(items) == MAXIMO_ITEMS:
-        st.caption(f"Se comparan los primeros {MAXIMO_ITEMS} productos de la lista.")
-    if not eleccion["cadenas"]:
-        st.info("Elegi al menos una cadena para comparar.")
-        return
-
-    preferencias = Preferencias(
-        entidades=frozenset(eleccion["entidades"]),
-        modalidad=eleccion["modalidad"],
-        incluir_sin_banco=eleccion["incluir_sin_banco"],
-    )
-
-    # La lista que se compara se congela al apretar el boton. Asi editar el
-    # texto no dispara consultas a cinco sitios en cada pasada de Streamlit.
-    if eleccion["comparar"] or "items_activos" not in st.session_state:
-        # Cambiar la lista invalida los envases que el usuario habia fijado a
-        # mano: los indices ya no apuntan al mismo producto.
-        for clave in [
-            k
-            for k in st.session_state
-            if k.startswith("formato_") or k.startswith("marca_")
-        ]:
-            del st.session_state[clave]
-        st.session_state["items_activos"] = items
-        st.session_state["cadenas_activas"] = eleccion["cadenas"]
-        st.session_state["zona_activa"] = eleccion["zona"]
-
-    items_activos: list[ItemLista] = st.session_state["items_activos"]
-    cadenas_activas: list[str] = st.session_state["cadenas_activas"]
-    zona_activa: str = st.session_state["zona_activa"]
-
     with st.spinner(
         f"Buscando {len(items_activos)} productos en {len(cadenas_activas)} cadenas..."
     ):
         candidatos, errores = buscar_cacheado(
-            tuple(items_activos), tuple(cadenas_activas), zona_activa
+            tuple(items_activos), tuple(cadenas_activas)
         )
 
     resultado = Resultado(
@@ -802,17 +827,11 @@ def main() -> None:
     fijadas = marcas_elegidas(resultado)
     armar(resultado, formatos_elegidos(resultado, fijadas), fijadas)
 
-    # Si cambio la lista o las cadenas sin apretar el boton, lo que hay en
-    # pantalla ya no corresponde: se avisa en vez de mostrar datos viejos.
-    if (
-        items != items_activos
-        or eleccion["cadenas"] != cadenas_activas
-        or eleccion["zona"] != zona_activa
-    ):
-        st.info(
-            "Cambiaste la lista, las cadenas o la zona. Apreta "
-            "**Comparar precios** para actualizar."
-        )
+    preferencias = Preferencias(
+        entidades=frozenset(st.session_state.get("entidades") or ()),
+        modalidad=st.session_state.get("modalidad", "sucursal"),
+        incluir_sin_banco=bool(st.session_state.get("incluir_sin_banco")),
+    )
 
     hoy = dt.date.today()
     veredictos = evaluar(
@@ -821,24 +840,15 @@ def main() -> None:
 
     if not preferencias.entidades:
         st.info(
-            "Agrega tus bancos o billeteras en la barra lateral y la comparacion "
-            "va a incluir los descuentos que te correspondan."
+            "Volve a la lista y agrega tus bancos o billeteras en **Donde y como "
+            "pagas**: la comparacion va a incluir los descuentos que te correspondan."
         )
 
-    tema.titulo(
-        "Donde comprar hoy",
-        f"{DIAS_SEMANA[hoy.weekday()]} {hoy:%d/%m} &middot; "
-        f"{zonas.zona_de(zona_activa).nombre}",
-    )
+    tema.titulo("Donde comprar hoy", f"{DIAS_SEMANA[hoy.weekday()]} {hoy:%d/%m}")
     mostrar_ranking(veredictos, total_items=len(items_activos))
 
     pestanas = st.tabs(
-        [
-            "Detalle por producto",
-            "Proximos 7 dias",
-            "Promociones vigentes",
-            "Sucursales de tu zona",
-        ]
+        ["Detalle por producto", "Proximos 7 dias", "Promociones vigentes"]
     )
 
     with pestanas[0]:
@@ -863,14 +873,22 @@ def main() -> None:
 
     with pestanas[2]:
         tema.titulo("Promociones vigentes", "filtradas por tus medios de pago")
-        mostrar_promociones(promos, eleccion["cadenas"], preferencias, hoy)
+        mostrar_promociones(promos, cadenas_activas, preferencias, hoy)
 
-    with pestanas[3]:
-        zona = zonas.zona_de(zona_activa)
-        tema.titulo("Sucursales de tu zona", zona.nombre)
-        mostrar_sucursales(
-            sucursales_cacheadas(tuple(cadenas_activas), zona_activa), zona
-        )
+
+def main() -> None:
+    """Dos pantallas: primero se arma la lista, despues se compara.
+
+    Separarlas es lo que hace que la app se parezca a comprar y no a llenar un
+    formulario: primero elegis, despues ves cuanto sale y donde.
+    """
+    with st.spinner("Leyendo las promociones de las cinco cadenas..."):
+        promos, fallos = cargar_promociones()
+
+    if st.session_state.get("paso") == "resultados":
+        pantalla_resultados(promos, fallos)
+    else:
+        pantalla_lista(promos)
 
 
 if __name__ == "__main__":

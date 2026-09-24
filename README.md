@@ -12,9 +12,30 @@ streamlit run app.py
 
 ---
 
+## Como se usa
+
+La app tiene dos pantallas, en ese orden:
+
+1. **Arma tu lista.** Los productos estan agrupados por categoria, como en una
+   gondola, y se agregan tocandolos. Ahi mismo se eligen las cadenas a comparar,
+   si vas a comprar en sucursal o por la web, y tus bancos y billeteras. Lo que
+   no este en el menu se puede escribir a mano.
+2. **La comparacion.** El ranking de las cinco cadenas, el detalle producto por
+   producto con sus selectores de marca y envase, el calendario de los proximos
+   siete dias y las promociones vigentes.
+
+Las categorias salen del arbol real que publica Carrefour
+(`/api/catalog_system/pub/category/tree/2`), agrupadas para una lista de
+compras. Lo que se guarda en `nucleo/catalogo.py` no son productos concretos
+sino **lo que se busca**: "leche entera", no "Leche Entera La Serenisima 1 L".
+Que marca y que envase se comparan lo deciden las reglas de mas abajo con lo que
+cada cadena tenga ese dia.
+
+---
+
 ## Que hace
 
-1. Lee tu lista de compras en texto libre, una linea por producto.
+1. Lee tu lista de compras, armada desde el menu o escrita a mano.
 2. Busca cada producto en las cinco cadenas, en paralelo.
 3. Acuerda un envase comun a todas las cadenas y, si fijaste una marca, la
    respeta; con eso elige en cada cadena el producto que corresponde.
@@ -291,7 +312,11 @@ lo que cada una necesita.
 | Coto | no regionaliza la busqueda: devuelve el precio de **todas** sus sucursales en la misma respuesta, y la zona se aplica al recibir |
 | Jumbo | no expone ninguna forma publica; se informa el precio de su tienda online |
 
-Zonas disponibles: **CABA**, **GBA Norte**, **GBA Oeste** y **GBA Sur**.
+**La zona no se elige desde la app.** Se consulta siempre la de CABA, porque
+preguntarla no compensaba: dentro del area metropolitana casi no mueve el
+precio. Se sigue usando internamente porque evita que a Coto se le cuele el
+precio de una sucursal del interior. Las cuatro zonas siguen definidas en
+`precios/zonas.py` por si se quiere volver a exponer.
 
 ### Cuanto cambia realmente
 
