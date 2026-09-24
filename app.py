@@ -22,7 +22,7 @@ from motor.decision import Preferencias, calendario, evaluar, tiene_medio
 from nucleo import formato as formatos
 from nucleo import marca as marcas
 from nucleo.formato import Formato
-from nucleo.catalogo import CATEGORIAS
+from nucleo.catalogo import CATEGORIA_POR_CLAVE, CATEGORIAS
 from nucleo.lista import MAXIMO_ITEMS, parsear_linea
 from nucleo.modelos import CotizacionCadena, ItemLista, Oferta, Promo, Veredicto
 from nucleo.texto import formatear_envase, pesos
@@ -56,6 +56,10 @@ cafe molido 250g"""
 # Cuanto se reusan los datos antes de volver a pedirlos.
 TTL_PROMOS = 60 * 60  # las promos bancarias son semanales; una hora sobra
 TTL_PRECIOS = 15 * 60  # los precios si se mueven durante el dia
+
+# Alto en pixeles del marco con scroll donde vive la lista elegida. Fijarlo es
+# lo que mantiene el boton de continuar siempre a la vista.
+ALTO_DE_LA_LISTA = 420
 
 
 st.set_page_config(
@@ -210,25 +214,55 @@ def paso_productos() -> None:
     tema.barra_de_pasos(PASOS, "productos")
 
     seleccion = seleccion_actual()
+
+    # El selector va a lo ancho de la pagina y no dentro de la columna del
+    # menu: con trece categorias en dos filas, el ancho de la columna dejaba
+    # los nombres cortados en "Perfu..." y "Desay...".
+    categoria = _selector_de_categoria(seleccion)
+    st.markdown("")
+
     columna_menu, columna_lista = st.columns([2.3, 1], gap="large")
-
     with columna_menu:
-        pestanas = st.tabs(
-            [f"{categoria.icono} {categoria.nombre}" for categoria in CATEGORIAS]
-        )
-        for pestana, categoria in zip(pestanas, CATEGORIAS):
-            with pestana:
-                _grilla_de_productos(categoria)
-
+        _grilla_de_productos(categoria, seleccion)
     with columna_lista:
         _panel_de_lista(seleccion)
 
-    _navegacion(None, "cadenas", "Continuar →", habilitado=bool(seleccion))
+
+def _selector_de_categoria(seleccion: dict[str, int]):
+    """Las categorias en dos filas, todas a la vista.
+
+    Antes eran pestañas, que Streamlit pone en una sola fila con scroll
+    horizontal: con trece categorias la mitad quedaba escondida detras de una
+    flecha que casi no se ve. En dos filas entran todas sin tener que descubrir
+    que hay mas.
+    """
+    activa = st.session_state.setdefault("categoria_activa", CATEGORIAS[0].clave)
+    corte = (len(CATEGORIAS) + 1) // 2
+
+    for fila in (CATEGORIAS[:corte], CATEGORIAS[corte:]):
+        columnas = st.columns(corte)
+        for columna, categoria in zip(columnas, fila):
+            elegidos = sum(
+                1 for producto in categoria.productos if producto in seleccion
+            )
+            etiqueta = f"{categoria.icono} {categoria.nombre}"
+            if elegidos:
+                etiqueta += f"  ({elegidos})"
+            with columna:
+                if st.button(
+                    etiqueta,
+                    key=f"categoria_{categoria.clave}",
+                    type="primary" if categoria.clave == activa else "secondary",
+                    width="stretch",
+                ):
+                    st.session_state["categoria_activa"] = categoria.clave
+                    st.rerun()
+
+    return CATEGORIA_POR_CLAVE.get(activa, CATEGORIAS[0])
 
 
-def _grilla_de_productos(categoria) -> None:
+def _grilla_de_productos(categoria, seleccion: dict[str, int]) -> None:
     """Los productos de una categoria, como botones que se prenden y apagan."""
-    seleccion = seleccion_actual()
     columnas = st.columns(3)
     for indice, producto in enumerate(categoria.productos):
         elegido = producto in seleccion
@@ -248,7 +282,12 @@ def _grilla_de_productos(categoria) -> None:
 
 
 def _panel_de_lista(seleccion: dict[str, int]) -> None:
-    """La lista armada hasta ahora, con su cantidad por producto."""
+    """La lista armada hasta ahora, con su cantidad por producto.
+
+    El boton de continuar va arriba y los productos abajo, dentro de un marco
+    con scroll propio. Al reves, una lista de treinta y cinco productos empujaba
+    el boton tan abajo que habia que recorrer toda la pagina para encontrarlo.
+    """
     st.markdown(
         f'<div class="panel-lista"><h3>Tu lista</h3>'
         f'<div class="nota">{len(seleccion)} producto'
@@ -257,32 +296,47 @@ def _panel_de_lista(seleccion: dict[str, int]) -> None:
     )
     st.markdown("")
 
+    st.markdown('<div class="navegacion">', unsafe_allow_html=True)
+    if st.button(
+        "Continuar →",
+        type="primary",
+        width="stretch",
+        disabled=not seleccion,
+        key="continuar_productos",
+    ):
+        ir_a("cadenas")
+    st.markdown("</div>", unsafe_allow_html=True)
+
     if not seleccion:
         st.markdown(
             '<div class="vacio">Todavía no elegiste nada.<br>Tocá los productos '
             "del menú para agregarlos.</div>",
             unsafe_allow_html=True,
         )
-
-    for producto in list(seleccion):
-        fila = st.columns([3, 2, 1], vertical_alignment="center")
-        fila[0].markdown(
-            f'<div style="padding-top:.4rem">{producto[:1].upper()}{producto[1:]}</div>',
-            unsafe_allow_html=True,
-        )
-        cantidad = fila[1].number_input(
-            "Cantidad",
-            min_value=1,
-            max_value=20,
-            value=seleccion[producto],
-            step=1,
-            key=f"cantidad_{producto}",
-            label_visibility="collapsed",
-        )
-        seleccion[producto] = int(cantidad)
-        if fila[2].button("✕", key=f"quitar_{producto}", help="Quitar de la lista"):
-            seleccion.pop(producto, None)
-            st.rerun()
+    else:
+        with st.container(height=ALTO_DE_LA_LISTA):
+            for producto in list(seleccion):
+                fila = st.columns([3, 2, 1], vertical_alignment="center")
+                fila[0].markdown(
+                    f'<div style="padding-top:.4rem;font-size:.9rem">'
+                    f"{producto[:1].upper()}{producto[1:]}</div>",
+                    unsafe_allow_html=True,
+                )
+                cantidad = fila[1].number_input(
+                    "Cantidad",
+                    min_value=1,
+                    max_value=20,
+                    value=seleccion[producto],
+                    step=1,
+                    key=f"cantidad_{producto}",
+                    label_visibility="collapsed",
+                )
+                seleccion[producto] = int(cantidad)
+                if fila[2].button(
+                    "✕", key=f"quitar_{producto}", help="Quitar de la lista"
+                ):
+                    seleccion.pop(producto, None)
+                    st.rerun()
 
     agregado = st.text_input(
         "¿No está en el menú?",

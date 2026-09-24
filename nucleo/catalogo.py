@@ -40,7 +40,7 @@ class Categoria:
 CATEGORIAS: tuple[Categoria, ...] = (
     Categoria(
         clave="almacen",
-        nombre="Almacen",
+        nombre="Almacén",
         icono="🥫",
         productos=(
             "aceite girasol",
@@ -87,7 +87,7 @@ CATEGORIAS: tuple[Categoria, ...] = (
     ),
     Categoria(
         clave="desayuno",
-        nombre="Desayuno y merienda",
+        nombre="Desayuno",
         icono="☕",
         productos=(
             "yerba mate",
@@ -123,7 +123,7 @@ CATEGORIAS: tuple[Categoria, ...] = (
     ),
     Categoria(
         clave="lacteos",
-        nombre="Lacteos y frescos",
+        nombre="Lácteos",
         icono="🥛",
         productos=(
             "leche entera",
@@ -159,7 +159,7 @@ CATEGORIAS: tuple[Categoria, ...] = (
     ),
     Categoria(
         clave="carnes",
-        nombre="Carnes y pescados",
+        nombre="Carnes",
         icono="🥩",
         productos=(
             "carne picada",
@@ -188,7 +188,7 @@ CATEGORIAS: tuple[Categoria, ...] = (
     ),
     Categoria(
         clave="frutas",
-        nombre="Frutas y verduras",
+        nombre="Verdulería",
         icono="🍎",
         productos=(
             "banana",
@@ -227,7 +227,7 @@ CATEGORIAS: tuple[Categoria, ...] = (
     ),
     Categoria(
         clave="panaderia",
-        nombre="Panaderia",
+        nombre="Panadería",
         icono="🍞",
         productos=(
             "pan lactal",
@@ -340,7 +340,7 @@ CATEGORIAS: tuple[Categoria, ...] = (
     ),
     Categoria(
         clave="perfumeria",
-        nombre="Perfumeria e higiene",
+        nombre="Perfumería",
         icono="🧴",
         productos=(
             "shampoo",
@@ -371,7 +371,7 @@ CATEGORIAS: tuple[Categoria, ...] = (
     ),
     Categoria(
         clave="bebes",
-        nombre="Bebes",
+        nombre="Bebés",
         icono="🍼",
         productos=(
             "panales",
