@@ -96,10 +96,50 @@ _RE_PORCENTAJE = re.compile(r"(\d{1,2}(?:[.,]\d+)?)\s?%")
 _RE_CUOTAS = re.compile(r"(\d{1,2})\s*cuotas?\s*sin\s*inter", re.IGNORECASE)
 
 
+# Prefijos que no distinguen nada: dieciseis de las treinta y seis entidades
+# empiezan con "Banco", asi que en una lista para elegir la propia obligan a
+# leer mas alla de la primera palabra en casi la mitad de los casos. Se ordenan
+# de mas largo a mas corto para que "Banco de " gane sobre "Banco ".
+_PREFIJOS_GENERICOS = (
+    "nuevo banco del ",
+    "nuevo banco de ",
+    "banco de la ",
+    "banco del ",
+    "banco de ",
+    "banco ",
+    "billetera ",
+)
+
+
 def nombre_entidad(clave: str) -> str:
     """Nombre presentable de una entidad a partir de su clave interna."""
     entrada = ENTIDADES.get(clave)
     return entrada[0] if entrada else clave.title()
+
+
+def nombre_corto(clave: str) -> str:
+    """El nombre sin el prefijo generico, para listas donde hay que buscar.
+
+    "Banco Nacion" se muestra como "Nacion" y "Nuevo Banco del Chaco" como
+    "Chaco", que es ademas como los nombra cualquiera. El nombre completo se
+    sigue usando donde hay lugar y hace falta precision, como al explicar de
+    que promocion salio un descuento.
+    """
+    completo = nombre_entidad(clave)
+    plano = normalizar(completo)
+    for prefijo in _PREFIJOS_GENERICOS:
+        if not plano.startswith(prefijo) or len(plano) <= len(prefijo):
+            continue
+        recorte = completo[len(prefijo) :].strip()
+        if not recorte:
+            continue
+        # Si lo que queda es una sola palabra corta, el articulo hace falta para
+        # que se entienda: "Banco del Sol" se reconoce como "Del Sol", no
+        # como "Sol" a secas.
+        if prefijo.endswith(("del ", "de ", "de la ")) and len(recorte.split()) == 1 and len(recorte) <= 4:
+            continue
+        return recorte[:1].upper() + recorte[1:]
+    return completo
 
 
 def detectar_entidades(*textos: str | None) -> tuple[str, ...]:

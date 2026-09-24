@@ -30,7 +30,7 @@ from precios import registro, zonas
 from precios.registro import CADENAS
 from precios.base import nueva_sesion
 from promociones.agregador import obtener_todas
-from promociones.bancos import nombre_entidad
+from promociones.bancos import nombre_corto, nombre_entidad
 from ui import tema
 
 logging.basicConfig(level=logging.WARNING)
@@ -432,7 +432,7 @@ def paso_pago(promos: list[Promo]) -> None:
     for indice, clave in enumerate(_entidades_de(promos)):
         activa = clave in elegidas
         with columnas[indice % 4]:
-            nombre = nombre_entidad(clave)
+            nombre = nombre_corto(clave)
             if st.button(
                 f"✓ {nombre}" if activa else nombre,
                 key=f"entidad_{clave}",
@@ -536,7 +536,7 @@ def _entidades_de(promos: list[Promo]) -> list[str]:
     corresponde.
     """
     encontradas = {clave for promo in promos for clave in promo.bancos}
-    return sorted(encontradas, key=lambda clave: normalizar(nombre_entidad(clave)))
+    return sorted(encontradas, key=lambda clave: normalizar(nombre_corto(clave)))
 
 
 # ---------------------------------------------------------------------------
