@@ -25,7 +25,7 @@ from nucleo.formato import Formato
 from nucleo.catalogo import CATEGORIA_POR_CLAVE, CATEGORIAS
 from nucleo.lista import MAXIMO_ITEMS, parsear_linea
 from nucleo.modelos import CotizacionCadena, ItemLista, Oferta, Promo, Veredicto
-from nucleo.texto import formatear_envase, pesos
+from nucleo.texto import formatear_envase, normalizar, pesos
 from precios import registro, zonas
 from precios.registro import CADENAS
 from precios.base import nueva_sesion
@@ -527,12 +527,16 @@ def _items_de_la_seleccion() -> list[ItemLista]:
 
 
 def _entidades_de(promos: list[Promo]) -> list[str]:
-    """Entidades que aparecen en alguna promo, de la mas frecuente a la menos."""
-    conteo: dict[str, int] = {}
-    for promo in promos:
-        for clave in promo.bancos:
-            conteo[clave] = conteo.get(clave, 0) + 1
-    return sorted(conteo, key=lambda clave: (-conteo[clave], nombre_entidad(clave)))
+    """Entidades que aparecen en alguna promo, en orden alfabetico.
+
+    Antes iban de la mas frecuente a la menos, que sirve para un ranking pero no
+    para encontrar la tuya entre treinta y seis. Sin un buscador donde escribir,
+    la unica forma de que se pueda buscar con la vista es que el orden sea el
+    que uno espera. Se ordena sin acentos para que "Cordoba" caiga donde
+    corresponde.
+    """
+    encontradas = {clave for promo in promos for clave in promo.bancos}
+    return sorted(encontradas, key=lambda clave: normalizar(nombre_entidad(clave)))
 
 
 # ---------------------------------------------------------------------------
