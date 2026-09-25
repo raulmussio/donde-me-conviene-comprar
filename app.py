@@ -254,8 +254,8 @@ def paso_productos() -> None:
     seleccion = seleccion_actual()
 
     # El selector va a lo ancho de la pagina y no dentro de la columna del
-    # menu: con trece categorias en dos filas, el ancho de la columna dejaba
-    # los nombres cortados en "Perfu..." y "Desay...".
+    # menu: con trece categorias, el ancho de la columna dejaba los nombres
+    # cortados en "Perfu..." y "Desay...".
     categoria = _selector_de_categoria(seleccion)
     st.markdown("")
 
@@ -265,46 +265,53 @@ def paso_productos() -> None:
     with columna_lista:
         _panel_de_lista(seleccion)
 
+    _barra_flotante(seleccion)
+
 
 def _selector_de_categoria(seleccion: dict[str, int]):
-    """Las categorias en dos filas, todas a la vista.
+    """Las categorias como fichas que fluyen y se acomodan solas.
 
-    Antes eran pestañas, que Streamlit pone en una sola fila con scroll
-    horizontal: con trece categorias la mitad quedaba escondida detras de una
-    flecha que casi no se ve. En dos filas entran todas sin tener que descubrir
-    que hay mas.
+    Son un contenedor horizontal que envuelve, no columnas. Con columnas, en el
+    telefono Streamlit las apila una debajo de otra: las trece categorias
+    quedaban como trece botones de ancho completo, iguales a los de producto,
+    y no se entendia que unos eran rubros y otros articulos.
     """
     activa = st.session_state.setdefault("categoria_activa", CATEGORIAS[0].clave)
-    corte = (len(CATEGORIAS) + 1) // 2
 
-    for fila in (CATEGORIAS[:corte], CATEGORIAS[corte:]):
-        columnas = st.columns(corte)
-        for columna, categoria in zip(columnas, fila):
+    with st.container(horizontal=True, wrap=True, gap="small", key="categorias"):
+        for categoria in CATEGORIAS:
             elegidos = sum(
                 1 for producto in categoria.productos if producto in seleccion
             )
             etiqueta = f"{categoria.icono} {categoria.nombre}"
             if elegidos:
-                etiqueta += f"  ({elegidos})"
-            with columna:
-                if st.button(
-                    etiqueta,
-                    key=f"categoria_{categoria.clave}",
-                    type="primary" if categoria.clave == activa else "secondary",
-                    width="stretch",
-                ):
-                    st.session_state["categoria_activa"] = categoria.clave
-                    st.rerun()
+                etiqueta += f" · {elegidos}"
+            if st.button(
+                etiqueta,
+                key=f"categoria_{categoria.clave}",
+                type="primary" if categoria.clave == activa else "secondary",
+                width="content",
+            ):
+                st.session_state["categoria_activa"] = categoria.clave
+                st.rerun()
 
     return CATEGORIA_POR_CLAVE.get(activa, CATEGORIAS[0])
 
 
 def _grilla_de_productos(categoria, seleccion: dict[str, int]) -> None:
-    """Los productos de una categoria, como botones que se prenden y apagan."""
-    columnas = st.columns(3)
-    for indice, producto in enumerate(categoria.productos):
-        elegido = producto in seleccion
-        with columnas[indice % 3]:
+    """Los productos de la categoria abierta, en grilla."""
+    st.markdown(
+        f'<div class="nota" style="margin-bottom:.5rem">'
+        f"{categoria.icono} {categoria.nombre} &middot; "
+        f"{len(categoria.productos)} productos</div>",
+        unsafe_allow_html=True,
+    )
+    # Un contenedor que envuelve, no columnas: el ancho de cada boton lo fija el
+    # CSS, tres por fila en pantalla grande y dos en el telefono. Con columnas,
+    # Streamlit las apila en pantalla angosta y quedaba un producto por fila.
+    with st.container(horizontal=True, wrap=True, gap="small", key="productos"):
+        for indice, producto in enumerate(categoria.productos):
+            elegido = producto in seleccion
             etiqueta = categoria.etiqueta_de(producto)
             if st.button(
                 f"✓ {etiqueta}" if elegido else etiqueta,
@@ -334,16 +341,15 @@ def _panel_de_lista(seleccion: dict[str, int]) -> None:
     )
     st.markdown("")
 
-    st.markdown('<div class="navegacion">', unsafe_allow_html=True)
-    if st.button(
-        "Continuar →",
-        type="primary",
-        width="stretch",
-        disabled=not seleccion,
-        key="continuar_productos",
-    ):
-        ir_a("cadenas")
-    st.markdown("</div>", unsafe_allow_html=True)
+    with st.container(key="continuar_escritorio"):
+        if st.button(
+            "Continuar →",
+            type="primary",
+            width="stretch",
+            disabled=not seleccion,
+            key="continuar_productos",
+        ):
+            ir_a("cadenas")
 
     if not seleccion:
         st.markdown(
@@ -393,6 +399,27 @@ def _panel_de_lista(seleccion: dict[str, int]) -> None:
     elif seleccion and st.button("Vaciar lista", width="stretch"):
         st.session_state["seleccion"] = {}
         st.rerun()
+
+
+def _barra_flotante(seleccion: dict[str, int]) -> None:
+    """En el telefono, la lista y el boton quedan fijos al pie.
+
+    Hace falta porque en pantalla angosta Streamlit apila las dos columnas: el
+    panel con la lista y el boton de continuar terminan debajo de los cuarenta
+    productos de la categoria, o sea fuera de la vista. Es el mismo recurso que
+    usan las aplicaciones de pedidos con el carrito.
+    """
+    if not seleccion:
+        return
+    with st.container(key="barra_movil"):
+        if st.button(
+            f"Continuar con {len(seleccion)} producto"
+            f"{'s' if len(seleccion) != 1 else ''} →",
+            type="primary",
+            width="stretch",
+            key="continuar_movil",
+        ):
+            ir_a("cadenas")
 
 
 # ---------------------------------------------------------------------------

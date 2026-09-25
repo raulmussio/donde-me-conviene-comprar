@@ -147,10 +147,73 @@ _CSS = f"""
   div[data-testid="stButton"] > button > div {{ width: 100%; justify-content: flex-start; }}
   div[data-testid="stButton"] > button p {{ font-size: .85rem; text-align: left; margin: 0; }}
 
+  /* ---------- categorias: fichas, no botones ---------- */
+  /* Tienen que leerse distinto de los productos. En el telefono todo terminaba
+     apilado y con el mismo ancho, y no se entendia que unos eran rubros y
+     otros articulos. */
+  .st-key-categorias div[data-testid="stButton"] > button {{
+      border-radius: 999px; min-height: 2.1rem; padding: .25rem .8rem;
+      border: 1px solid {BORDE}; background: {PANEL};
+  }}
+  .st-key-categorias div[data-testid="stButton"] > button p {{
+      font-size: .82rem; white-space: nowrap;
+  }}
+  /* La ficha activa va rellena. Sin esto queda con el fondo blanco que fija la
+     regla de arriba y el texto blanco que le pone Streamlit al boton primario:
+     blanco sobre blanco, se ve solo el icono. */
+  .st-key-categorias div[data-testid="stButton"] > button[kind="primary"] {{
+      background: {NARANJA}; border-color: {NARANJA};
+  }}
+  .st-key-categorias div[data-testid="stButton"] > button[kind="primary"] p {{
+      color: #fff; font-weight: 600;
+  }}
+
+  /* ---------- productos: grilla que se adapta ---------- */
+  /* El que flexiona es el contenedor que Streamlit pone alrededor de cada
+     elemento, no el div del boton: darle el ancho al boton no cambia nada
+     porque el que decide cuanto ocupa en la fila es el de afuera. */
+  /* El espacio entre elementos del contenedor es de 16px, asi que cada uno
+     tiene que ceder la parte que le toca: en una fila de tres hay dos espacios
+     repartidos entre tres, o sea 10,67px cada uno. Descontar de menos hace que
+     el tercero no entre y la fila quede de dos. */
+  .st-key-productos > div[data-testid="stElementContainer"] {{
+      flex: 0 0 calc(33.333% - 10.67px); min-width: 0;
+  }}
+  .st-key-productos div[data-testid="stButton"] > button {{
+      width: 100%; min-height: 2.6rem;
+  }}
+
+  /* ---------- telefono ---------- */
+  /* Streamlit apila las columnas en pantalla angosta, asi que el panel con la
+     lista y su boton terminan debajo de los cuarenta productos de la
+     categoria, o sea fuera de la vista. La barra fija al pie resuelve eso, como
+     el carrito de las aplicaciones de pedidos. */
+  .st-key-barra_movil {{ display: none; }}
+
+  @media (max-width: 640px) {{
+      .block-container {{ padding-top: 1.2rem; padding-bottom: 5rem; }}
+      .hero h1 {{ font-size: 1.55rem; }}
+      /* En una fila de dos hay un espacio repartido entre dos: 8px cada uno. */
+      .st-key-productos > div[data-testid="stElementContainer"] {{
+          flex: 0 0 calc(50% - 8px);
+      }}
+      .st-key-continuar_escritorio {{ display: none; }}
+      .st-key-barra_movil {{
+          display: block; position: fixed; left: 0; right: 0; bottom: 0;
+          z-index: 999; background: {PANEL}; padding: .6rem .9rem;
+          border-top: 1px solid {BORDE}; box-shadow: 0 -4px 14px rgba(16,24,40,.08);
+      }}
+      .pasos {{ gap: .35rem; margin-bottom: 1.1rem; }}
+      .paso {{ font-size: .75rem; padding: .25rem .6rem .25rem .3rem; }}
+  }}
+
   /* Los de avanzar y volver si van centrados: son acciones, no items. */
   .navegacion div[data-testid="stButton"] > button,
   .navegacion div[data-testid="stButton"] > button > div {{ justify-content: center; }}
   .navegacion div[data-testid="stButton"] > button p {{ text-align: center; }}
+  .st-key-barra_movil div[data-testid="stButton"] > button,
+  .st-key-barra_movil div[data-testid="stButton"] > button > div {{ justify-content: center; }}
+  .st-key-barra_movil div[data-testid="stButton"] > button p {{ text-align: center; }}
 </style>
 """
 
