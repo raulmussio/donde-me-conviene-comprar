@@ -256,7 +256,7 @@ def paso_productos() -> None:
     # El selector va a lo ancho de la pagina y no dentro de la columna del
     # menu: con trece categorias, el ancho de la columna dejaba los nombres
     # cortados en "Perfu..." y "Desay...".
-    categoria = _selector_de_categoria(seleccion)
+    categoria = _selector_de_categoria()
     st.markdown("")
 
     columna_menu, columna_lista = st.columns([2.3, 1], gap="large")
@@ -268,7 +268,7 @@ def paso_productos() -> None:
     _barra_flotante(seleccion)
 
 
-def _selector_de_categoria(seleccion: dict[str, int]):
+def _selector_de_categoria():
     """El rubro que se esta mirando, en un desplegable.
 
     Antes eran fichas, y aun acomodandose solas ocupaban seis filas en el
@@ -278,7 +278,7 @@ def _selector_de_categoria(seleccion: dict[str, int]):
     st.selectbox(
         "Categoría",
         options=[categoria.clave for categoria in CATEGORIAS],
-        format_func=lambda clave: _etiqueta_categoria(clave, seleccion),
+        format_func=_etiqueta_categoria,
         key="categoria_activa",
         # Sin buscador: es una lista cerrada de trece. Con el buscador puesto,
         # en el telefono cada toque abre el teclado y tapa media pantalla.
@@ -289,20 +289,30 @@ def _selector_de_categoria(seleccion: dict[str, int]):
     )
 
 
-def _etiqueta_categoria(clave: str, seleccion: dict[str, int]) -> str:
-    """Nombre del rubro con cuantos productos suyos ya estan en la lista."""
+def _etiqueta_categoria(clave: str) -> str:
+    """Nombre del rubro para el desplegable.
+
+    No lleva cuantos productos suyos ya elegiste, por mas util que seria: la
+    etiqueta tiene que ser **siempre la misma**. Si cambia entre pasadas, el
+    desplegable pierde la seleccion y vuelve a la primera categoria. Se veia al
+    elegir el segundo producto de un rubro: el primero lo aguantaba y con el
+    segundo saltaba de vuelta a Almacen. El contador vive debajo, en el texto
+    que dice cuantos productos tiene el rubro.
+    """
     categoria = CATEGORIA_POR_CLAVE[clave]
-    elegidos = sum(1 for producto in categoria.productos if producto in seleccion)
-    sufijo = f"  ·  {elegidos} en tu lista" if elegidos else ""
-    return f"{categoria.icono}  {categoria.nombre}{sufijo}"
+    return f"{categoria.icono}  {categoria.nombre}"
 
 
 def _grilla_de_productos(categoria, seleccion: dict[str, int]) -> None:
     """Los productos de la categoria abierta, en grilla."""
     # Sin repetir el nombre del rubro, que ya lo dice el desplegable de arriba.
+    # Aca si puede ir el contador de elegidos: es texto suelto, no la etiqueta
+    # de un widget con estado.
+    elegidos = sum(1 for producto in categoria.productos if producto in seleccion)
+    detalle = f" &middot; {elegidos} en tu lista" if elegidos else ""
     st.markdown(
         f'<div class="nota" style="margin:.2rem 0 .5rem">'
-        f"{len(categoria.productos)} productos</div>",
+        f"{len(categoria.productos)} productos{detalle}</div>",
         unsafe_allow_html=True,
     )
     # Un contenedor que envuelve, no columnas: el ancho de cada boton lo fija el
