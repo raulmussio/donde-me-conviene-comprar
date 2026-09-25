@@ -431,6 +431,45 @@ tomarlo haria parecer a Coto sistematicamente mas barato de lo que es.
 
 ---
 
+## Compartirlo con otros
+
+La app corre entera en el servidor, asi que alcanza con una URL: quien la abre
+no instala nada. Se despliega gratis en **Streamlit Community Cloud**, que lee
+el codigo de un repositorio de GitHub.
+
+1. Creá un repositorio vacío en github.com (sin README ni .gitignore, para que
+   no choque con el historial que ya existe).
+2. Desde la carpeta del proyecto:
+
+   ```bash
+   git remote add origin https://github.com/USUARIO/REPO.git
+   git push -u origin master
+   ```
+
+3. Entra a [share.streamlit.io](https://share.streamlit.io), iniciá sesión con
+   GitHub y elegí **New app**. Repositorio, rama `master`, archivo `app.py`.
+   En *Advanced settings* elegí **Python 3.11 o superior**: el codigo usa
+   anotaciones que no existen antes de 3.10.
+4. Sale una URL del estilo `tu-app.streamlit.app` para pasar por donde sea.
+
+### Lo que conviene saber antes de difundirla
+
+- **Cada visita consulta las cinco cadenas en vivo**, desde la IP compartida del
+  servidor. Entre amigos no es problema. Si la app circula mucho, esa IP puede
+  terminar limitada o bloqueada por alguna cadena, y ahi deja de traer precios.
+- El cache juega a favor: es del proceso, no de cada visitante, asi que varias
+  personas mirando lo mismo en la misma franja comparten las consultas. Los
+  precios se reusan quince minutos y las promociones una hora.
+- **No guarda nada de nadie.** No hay base de datos, ni cuentas, ni registro de
+  las listas: todo vive en la sesion del navegador y se pierde al cerrarla.
+- Las fuentes son endpoints publicos de cada cadena, los mismos que consulta el
+  navegador de cualquier visitante de sus sitios. Aun asi, publicar una
+  herramienta que los consulta de forma automatica es mas visible que usarla uno
+  mismo: si alguna cadena bloquea el acceso, lo que corresponde es sacarla de la
+  lista y no buscarle la vuelta.
+
+---
+
 ## Estructura
 
 ```

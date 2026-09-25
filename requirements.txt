@@ -1,4 +1,9 @@
-# Verificado con Python 3.14 en Windows. Las versiones son las minimas probadas.
-streamlit>=1.40
+# Probado con Python 3.14 en Windows, pero el codigo no usa nada posterior a
+# 3.10: todas las anotaciones van bajo `from __future__ import annotations`.
+#
+# El minimo de Streamlit no es negociable hacia abajo: la app usa `width=
+# "stretch"`, `st.container(height=...)` y `vertical_alignment`, que en
+# versiones anteriores no existen y hacen fallar el arranque.
+streamlit>=1.49
 requests>=2.32
 pandas>=2.2
