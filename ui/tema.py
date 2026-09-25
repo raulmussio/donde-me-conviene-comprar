@@ -57,25 +57,30 @@ _CSS = f"""
   .hero p {{ color: {TENUE}; margin: 0; font-size: 1rem; }}
 
   /* ---------- pasos ---------- */
-  .pasos {{ display: flex; gap: .5rem; margin: 0 0 1.6rem; flex-wrap: wrap; }}
+  /* Son un indicador de donde estas, no botones. Con forma de pastilla y
+     relleno de color se leian como algo para apretar, y encima el paso actual
+     competia visualmente con el boton de avanzar. Ahora lo unico que los
+     distingue es el color: gris claro lo que falta, gris lo que ya pasaste,
+     naranja donde estas. */
+  .pasos {{
+      display: flex; gap: 1.2rem; flex-wrap: wrap;
+      margin: 0 0 1.7rem; padding-bottom: .7rem;
+      border-bottom: 1px solid {BORDE};
+  }}
   .paso {{
       display: flex; align-items: center; gap: .45rem;
-      padding: .3rem .8rem .3rem .4rem; border-radius: 999px;
-      background: {PANEL}; border: 1px solid {BORDE};
-      font-size: .82rem; color: {TENUE}; white-space: nowrap;
+      font-size: .85rem; color: #B9BFC8; white-space: nowrap;
   }}
   .paso .num {{
-      width: 1.35rem; height: 1.35rem; border-radius: 50%;
-      background: {SUAVE}; color: {TENUE};
+      width: 1.3rem; height: 1.3rem; border-radius: 50%;
+      background: {SUAVE}; color: #B9BFC8;
       display: inline-flex; align-items: center; justify-content: center;
-      font-size: .74rem; font-weight: 600;
+      font-size: .72rem; font-weight: 600;
   }}
-  .paso.activo {{
-      background: {NARANJA}; border-color: {NARANJA}; color: #fff; font-weight: 600;
-  }}
-  .paso.activo .num {{ background: rgba(255,255,255,.25); color: #fff; }}
-  .paso.hecho {{ color: {TEXTO}; border-color: {NARANJA}; }}
-  .paso.hecho .num {{ background: {NARANJA}; color: #fff; }}
+  .paso.hecho {{ color: {TENUE}; }}
+  .paso.hecho .num {{ background: rgba(20,164,77,.12); color: {VERDE}; }}
+  .paso.activo {{ color: {NARANJA}; font-weight: 700; }}
+  .paso.activo .num {{ background: {NARANJA}; color: #fff; }}
 
   /* ---------- tarjetas ---------- */
   .tarjeta {{
@@ -147,25 +152,48 @@ _CSS = f"""
   div[data-testid="stButton"] > button > div {{ width: 100%; justify-content: flex-start; }}
   div[data-testid="stButton"] > button p {{ font-size: .85rem; text-align: left; margin: 0; }}
 
-  /* ---------- categorias: fichas, no botones ---------- */
-  /* Tienen que leerse distinto de los productos. En el telefono todo terminaba
-     apilado y con el mismo ancho, y no se entendia que unos eran rubros y
-     otros articulos. */
-  .st-key-categorias div[data-testid="stButton"] > button {{
-      border-radius: 999px; min-height: 2.1rem; padding: .25rem .8rem;
-      border: 1px solid {BORDE}; background: {PANEL};
+  /* ---------- cadenas: fichas con su color ---------- */
+  /* El punto va dentro de la ficha y no como un elemento aparte: suelto encima
+     del boton, en el telefono quedaba centrado y sin relacion visible con el
+     nombre que tenia debajo. */
+  .st-key-cadenas div[data-testid="stButton"] > button {{
+      border-radius: 999px; min-height: 2.3rem; padding: .3rem 1rem;
   }}
-  .st-key-categorias div[data-testid="stButton"] > button p {{
+  .st-key-cadena_carrefour div[data-testid="stButton"] > button p::before {{
+      content: ""; display: inline-block; width: .55rem; height: .55rem;
+      border-radius: 50%; background: #0050AA; margin-right: .45rem;
+      vertical-align: middle;
+  }}
+  .st-key-cadena_coto div[data-testid="stButton"] > button p::before {{
+      content: ""; display: inline-block; width: .55rem; height: .55rem;
+      border-radius: 50%; background: #E20025; margin-right: .45rem;
+      vertical-align: middle;
+  }}
+  .st-key-cadena_jumbo div[data-testid="stButton"] > button p::before {{
+      content: ""; display: inline-block; width: .55rem; height: .55rem;
+      border-radius: 50%; background: #00A03C; margin-right: .45rem;
+      vertical-align: middle;
+  }}
+  .st-key-cadena_dia div[data-testid="stButton"] > button p::before {{
+      content: ""; display: inline-block; width: .55rem; height: .55rem;
+      border-radius: 50%; background: #D52B1E; margin-right: .45rem;
+      vertical-align: middle;
+  }}
+  .st-key-cadena_changomas div[data-testid="stButton"] > button p::before {{
+      content: ""; display: inline-block; width: .55rem; height: .55rem;
+      border-radius: 50%; background: #F5A623; margin-right: .45rem;
+      vertical-align: middle;
+  }}
+  .st-key-cadenas div[data-testid="stButton"] > button[kind="primary"] p::before {{
+      box-shadow: 0 0 0 2px rgba(255,255,255,.75);
+  }}
+
+  /* ---------- medios de pago: fichas ---------- */
+  .st-key-entidades div[data-testid="stButton"] > button {{
+      border-radius: 999px; min-height: 2.2rem; padding: .28rem .85rem;
+  }}
+  .st-key-entidades div[data-testid="stButton"] > button p {{
       font-size: .82rem; white-space: nowrap;
-  }}
-  /* La ficha activa va rellena. Sin esto queda con el fondo blanco que fija la
-     regla de arriba y el texto blanco que le pone Streamlit al boton primario:
-     blanco sobre blanco, se ve solo el icono. */
-  .st-key-categorias div[data-testid="stButton"] > button[kind="primary"] {{
-      background: {NARANJA}; border-color: {NARANJA};
-  }}
-  .st-key-categorias div[data-testid="stButton"] > button[kind="primary"] p {{
-      color: #fff; font-weight: 600;
   }}
 
   /* ---------- productos: grilla que se adapta ---------- */

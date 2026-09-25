@@ -269,40 +269,36 @@ def paso_productos() -> None:
 
 
 def _selector_de_categoria(seleccion: dict[str, int]):
-    """Las categorias como fichas que fluyen y se acomodan solas.
+    """El rubro que se esta mirando, en un desplegable.
 
-    Son un contenedor horizontal que envuelve, no columnas. Con columnas, en el
-    telefono Streamlit las apila una debajo de otra: las trece categorias
-    quedaban como trece botones de ancho completo, iguales a los de producto,
-    y no se entendia que unos eran rubros y otros articulos.
+    Antes eran fichas, y aun acomodandose solas ocupaban seis filas en el
+    telefono antes de llegar al primer producto. Un desplegable ocupa una,
+    y ademas se lee como lo que es: elegis un rubro, no apretas un boton.
     """
-    activa = st.session_state.setdefault("categoria_activa", CATEGORIAS[0].clave)
+    st.selectbox(
+        "Categoría",
+        options=[categoria.clave for categoria in CATEGORIAS],
+        format_func=lambda clave: _etiqueta_categoria(clave, seleccion),
+        key="categoria_activa",
+    )
+    return CATEGORIA_POR_CLAVE.get(
+        st.session_state.get("categoria_activa", CATEGORIAS[0].clave), CATEGORIAS[0]
+    )
 
-    with st.container(horizontal=True, wrap=True, gap="small", key="categorias"):
-        for categoria in CATEGORIAS:
-            elegidos = sum(
-                1 for producto in categoria.productos if producto in seleccion
-            )
-            etiqueta = f"{categoria.icono} {categoria.nombre}"
-            if elegidos:
-                etiqueta += f" · {elegidos}"
-            if st.button(
-                etiqueta,
-                key=f"categoria_{categoria.clave}",
-                type="primary" if categoria.clave == activa else "secondary",
-                width="content",
-            ):
-                st.session_state["categoria_activa"] = categoria.clave
-                st.rerun()
 
-    return CATEGORIA_POR_CLAVE.get(activa, CATEGORIAS[0])
+def _etiqueta_categoria(clave: str, seleccion: dict[str, int]) -> str:
+    """Nombre del rubro con cuantos productos suyos ya estan en la lista."""
+    categoria = CATEGORIA_POR_CLAVE[clave]
+    elegidos = sum(1 for producto in categoria.productos if producto in seleccion)
+    sufijo = f"  ·  {elegidos} en tu lista" if elegidos else ""
+    return f"{categoria.icono}  {categoria.nombre}{sufijo}"
 
 
 def _grilla_de_productos(categoria, seleccion: dict[str, int]) -> None:
     """Los productos de la categoria abierta, en grilla."""
+    # Sin repetir el nombre del rubro, que ya lo dice el desplegable de arriba.
     st.markdown(
-        f'<div class="nota" style="margin-bottom:.5rem">'
-        f"{categoria.icono} {categoria.nombre} &middot; "
+        f'<div class="nota" style="margin:.2rem 0 .5rem">'
         f"{len(categoria.productos)} productos</div>",
         unsafe_allow_html=True,
     )
@@ -438,21 +434,19 @@ def paso_cadenas() -> None:
     tema.barra_de_pasos(PASOS, "cadenas")
 
     elegidas = cadenas_elegidas()
-    columnas = st.columns(len(CADENAS))
-    for columna, clave in zip(columnas, CADENAS):
-        activa = clave in elegidas
-        with columna:
-            st.markdown(
-                '<div style="text-align:center;line-height:1;margin-bottom:.3rem">'
-                f'<span class="punto" style="background:{tema.color_de(clave)};'
-                'width:.9rem;height:.9rem"></span></div>',
-                unsafe_allow_html=True,
-            )
+
+    # Fichas que envuelven, no una columna por cadena: en el telefono Streamlit
+    # las apila y quedaban cinco barras de ancho completo, cada una con su punto
+    # de color flotando arriba y sin relacion visible con el nombre. El punto
+    # ahora va dentro de la ficha, puesto por CSS.
+    with st.container(horizontal=True, wrap=True, gap="small", key="cadenas"):
+        for clave in CADENAS:
+            activa = clave in elegidas
             if st.button(
-                f"✓ {CADENAS[clave].nombre}" if activa else CADENAS[clave].nombre,
+                CADENAS[clave].nombre,
                 key=f"cadena_{clave}",
                 type="primary" if activa else "secondary",
-                width="stretch",
+                width="content",
             ):
                 if activa and len(elegidas) > 1:
                     elegidas.remove(clave)
@@ -472,6 +466,7 @@ def paso_cadenas() -> None:
         horizontal=True,
         format_func=lambda v: "En sucursal" if v == "sucursal" else "Por la web",
         key="modalidad",
+        label_visibility="collapsed",
     )
 
     _navegacion("productos", "pago", "Continuar →", habilitado=bool(elegidas))
@@ -493,16 +488,19 @@ def paso_pago(promos: list[Promo]) -> None:
     tema.barra_de_pasos(PASOS, "pago")
 
     elegidas = st.session_state.setdefault("entidades", [])
-    columnas = st.columns(4)
-    for indice, clave in enumerate(_entidades_de(promos)):
-        activa = clave in elegidas
-        with columnas[indice % 4]:
+
+    # Fichas que envuelven, no cuatro columnas: en el telefono las columnas se
+    # apilan y las treinta y seis entidades quedaban una debajo de otra, con la
+    # pagina midiendo dos mil seiscientos pixeles de alto.
+    with st.container(horizontal=True, wrap=True, gap="small", key="entidades"):
+        for clave in _entidades_de(promos):
+            activa = clave in elegidas
             nombre = nombre_corto(clave)
             if st.button(
                 f"✓ {nombre}" if activa else nombre,
                 key=f"entidad_{clave}",
                 type="primary" if activa else "secondary",
-                width="stretch",
+                width="content",
             ):
                 if activa:
                     elegidas.remove(clave)
