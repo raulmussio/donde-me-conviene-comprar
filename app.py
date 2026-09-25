@@ -16,6 +16,7 @@ import logging
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as componentes
 
 from motor.canasta import Resultado, armar, buscar
 from motor.decision import Preferencias, calendario, evaluar, tiene_medio
@@ -166,6 +167,38 @@ PASOS: list[tuple[str, str]] = [
 
 def paso_actual() -> str:
     return st.session_state.setdefault("paso", "productos")
+
+
+def _volver_al_tope() -> None:
+    """Sube la pagina cuando se pasa de un paso a otro.
+
+    Streamlit conserva la posicion del scroll entre pasadas, asi que si el boton
+    de avanzar estaba al pie de una pantalla larga, la siguiente aparecia
+    empezada por el final. El que scrollea no es la ventana sino el contenedor
+    `stMain`, y como el script corre dentro de un iframe hay que alcanzarlo por
+    `window.parent`.
+
+    Solo se dispara al cambiar de paso: hacerlo en cada pasada devolveria al
+    tope cada vez que se toca un selector.
+    """
+    actual = st.session_state.get("paso", "productos")
+    if st.session_state.get("_paso_mostrado") == actual:
+        return
+    st.session_state["_paso_mostrado"] = actual
+    # El token hace que el componente cambie de contenido y Streamlit vuelva a
+    # montarlo; con un HTML identico no volveria a ejecutar el script.
+    token = st.session_state.get("_saltos", 0) + 1
+    st.session_state["_saltos"] = token
+    componentes.html(
+        f"""<script>
+            const doc = window.parent.document;
+            const principal = doc.querySelector('section[data-testid="stMain"]');
+            if (principal) principal.scrollTo({{top: 0}});
+            doc.documentElement.scrollTop = 0;
+            /* {token} */
+        </script>""",
+        height=0,
+    )
 
 
 def ir_a(paso: str) -> None:
@@ -1073,6 +1106,7 @@ def main() -> None:
         promos, fallos = cargar_promociones()
 
     paso = paso_actual()
+    _volver_al_tope()
     if paso == "cadenas":
         paso_cadenas()
     elif paso == "pago":
