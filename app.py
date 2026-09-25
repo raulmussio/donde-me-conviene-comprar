@@ -589,39 +589,38 @@ def mostrar_ranking(veredictos: list[Veredicto], total_items: int) -> None:
         return
 
     ganador = veredictos[0]
-    peor = max(veredictos, key=lambda v: v.total_canasta)
 
     columnas = st.columns(3)
     columnas[0].metric(
         "Te conviene",
         ganador.nombre,
         help=(
-            "Cadena con la canasta completa mas barata. Si a una cadena le falta "
-            "un producto, se le suma lo que costaria conseguirlo en otro lado, "
-            "para que todas se comparen sobre la misma lista."
+            "La mas barata producto por producto. No se compara por el total, "
+            "porque el total de una cadena a la que le faltan productos es mas "
+            "bajo sin que sea mas barata."
         ),
     )
     columnas[1].metric(
-        "Vas a pagar ahi",
+        "Vas a pagar ahí",
         pesos(ganador.total_final),
         help=(
-            f"Mas {pesos(ganador.estimado_afuera)} estimados por los "
-            f"{ganador.faltantes} productos que no tiene."
-            if ganador.faltantes
-            else None
+            f"Por los {ganador.cotizacion.encontrados} de {total_items} productos "
+            "de tu lista que esta cadena tiene. Lo que falte lo conseguís después."
         ),
     )
 
-    # Con una sola cadena no hay contra que comparar, y con un empate la
-    # diferencia es cero: mostrar "-0%" en verde seria decir algo que no pasa.
-    diferencia = peor.total_canasta - ganador.total_canasta
-    if len(veredictos) > 1 and diferencia > 0.01:
+    diferencia = ganador.diferencia_porcentual
+    if ganador.comparables and abs(diferencia) >= 0.5:
         columnas[2].metric(
-            "Contra la mas cara",
-            pesos(diferencia),
-            delta=f"-{diferencia / peor.total_canasta:.0%}",
+            "Contra el precio típico",
+            f"{abs(diferencia):.0f}% {'más barata' if diferencia < 0 else 'más cara'}",
+            delta=f"{diferencia:+.0f}%",
             delta_color="inverse",
-            help=f"Diferencia contra {peor.nombre}, la opcion mas cara.",
+            help=(
+                f"Comparando uno por uno los {ganador.comparables} productos que "
+                "cotizaron al menos dos cadenas, contra el precio típico de cada "
+                "uno."
+            ),
         )
     else:
         columnas[2].metric("Cadenas comparadas", str(len(veredictos)))
@@ -644,27 +643,33 @@ def _tarjeta_cadena(
             f'<span class="monto">{pesos(veredicto.total_final)}</span>'
         )
         detalle = (
-            f'<div class="ahorro">Ahorras {pesos(veredicto.ahorro)} &middot; '
+            f'<div class="ahorro">Ahorrás {pesos(veredicto.ahorro)} &middot; '
             f"{_texto_promo(veredicto.promo)}</div>"
         )
     else:
         importe = f'<span class="monto">{pesos(veredicto.total_final)}</span>'
         detalle = (
-            '<div class="nota">Sin promocion aplicable con los medios de pago '
+            '<div class="nota">Sin promoción aplicable con los medios de pago '
             "elegidos.</div>"
         )
 
-    if veredicto.faltantes:
-        importe += (
-            f' <span class="nota">+ {pesos(veredicto.estimado_afuera)} afuera '
-            f"= <b>{pesos(veredicto.total_canasta)}</b></span>"
-        )
-
     etiquetas: list[str] = []
+    # El indice va primero porque es lo que explica el orden: sin el, una cadena
+    # con un total mas alto arriba de otra con uno mas bajo parece un error.
+    diferencia = veredicto.diferencia_porcentual
+    if veredicto.comparables and abs(diferencia) >= 0.5:
+        clase_indice = "etiqueta etiqueta-promo" if diferencia < 0 else "etiqueta"
+        texto = (
+            f"{abs(diferencia):.0f}% más barata que el promedio"
+            if diferencia < 0
+            else f"{diferencia:.0f}% más cara que el promedio"
+        )
+        etiquetas.append(f'<span class="{clase_indice}">{texto}</span>')
+
     if cotizacion.encontrados < total_items:
         faltan = total_items - cotizacion.encontrados
         etiquetas.append(
-            f'<span class="etiqueta etiqueta-alerta">faltan {faltan} de '
+            f'<span class="etiqueta etiqueta-alerta">no tiene {faltan} de '
             f"{total_items}</span>"
         )
     if cotizacion.error:
@@ -907,7 +912,7 @@ def mostrar_calendario(agenda: list, hoy: dt.date) -> None:
     """Los proximos siete dias, con la mejor opcion de cada uno."""
     columnas = st.columns(len(agenda))
     con_datos = [dia for dia in agenda if dia.cadena]
-    mejor_dia = min(con_datos, key=lambda d: d.total_canasta) if con_datos else None
+    mejor_dia = min(con_datos, key=lambda d: d.indice) if con_datos else None
 
     for columna, dia in zip(columnas, agenda):
         with columna:
@@ -928,7 +933,7 @@ def mostrar_calendario(agenda: list, hoy: dt.date) -> None:
                 cuerpo = (
                     f'<div style="font-weight:600;margin:.2rem 0">'
                     f"{dia.nombre_cadena}</div>"
-                    f'<div class="monto"{destaque}>{pesos(dia.total_canasta)}</div>'
+                    f'<div class="monto"{destaque}>{pesos(dia.total)}</div>'
                     f"{promo}"
                 )
             st.markdown(
@@ -941,10 +946,9 @@ def mostrar_calendario(agenda: list, hoy: dt.date) -> None:
 
     if mejor_dia and mejor_dia.fecha != hoy:
         hoy_total = next(
-            (d.total_canasta for d in con_datos if d.fecha == hoy),
-            mejor_dia.total_canasta,
+            (d.total for d in con_datos if d.fecha == hoy), mejor_dia.total
         )
-        diferencia = hoy_total - mejor_dia.total_canasta
+        diferencia = hoy_total - mejor_dia.total
         if diferencia > 0:
             st.success(
                 f"Esperando al {DIAS_SEMANA[mejor_dia.fecha.weekday()].lower()} "

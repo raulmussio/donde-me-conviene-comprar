@@ -193,18 +193,25 @@ class Promo:
 class Veredicto:
     """Una cadena ya evaluada con promo aplicada, lista para rankear.
 
-    `estimado_afuera` es lo que costaria conseguir en otro lado los items que
-    esta cadena no tiene, estimado con el precio tipico de las cadenas que si
-    los tienen. Sin ese termino la comparacion es tramposa: una cadena a la que
-    le falta un producto muestra un total mas bajo sin ser mas barata, y una que
-    tiene todo puede quedar primera aunque cueste diez mil pesos mas.
+    `indice` es lo que decide el orden: cuanto cuesta esta cadena comparada con
+    lo que cuesta tipicamente cada producto. Un 0,90 quiere decir que, producto
+    por producto, sale un 10% menos que la media.
+
+    Hace falta porque los totales crudos no son comparables entre cadenas: a la
+    que no tiene dos de tus productos le falta el precio de esos dos, asi que
+    suma menos sin ser mas barata. Antes eso se corregia sumandole lo que
+    costaria conseguirlos en otro lado, y era peor el remedio: inflaba el numero
+    con plata que nadie va a gastar ahi, y el total que se mostraba dejaba de
+    ser lo que se paga en la caja.
     """
 
     cotizacion: CotizacionCadena
     promo: Promo | None
     ahorro: float
-    estimado_afuera: float = 0.0
-    faltantes: int = 0
+    # Precio relativo al tipico de cada producto, 1.0 = como la media.
+    indice: float = 1.0
+    # Sobre cuantos productos se pudo calcular ese indice.
+    comparables: int = 0
 
     @property
     def cadena(self) -> str:
@@ -220,18 +227,19 @@ class Veredicto:
 
     @property
     def total_final(self) -> float:
-        """Lo que pagas en esta cadena, ya con la promocion aplicada."""
+        """Lo que pagas en esta cadena, ya con la promocion aplicada.
+
+        Es plata real: lo que sale llevarte de aca los productos que esta cadena
+        si tiene.
+        """
         return max(0.0, self.total_bruto - self.ahorro)
 
     @property
-    def total_canasta(self) -> float:
-        """Lo que te sale la lista completa si comprar el grueso aca.
-
-        Es el numero con el que se comparan las cadenas entre si, porque es el
-        unico que representa la misma canasta en todas.
-        """
-        return self.total_final + self.estimado_afuera
+    def diferencia_porcentual(self) -> float:
+        """Cuanto mas barato o mas caro que la media, en porcentaje."""
+        return (self.indice - 1.0) * 100.0
 
     @property
-    def es_estimado(self) -> bool:
-        return self.faltantes > 0
+    def faltantes(self) -> int:
+        return len(self.cotizacion.lineas) - self.cotizacion.encontrados
+

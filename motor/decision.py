@@ -109,23 +109,49 @@ def mejor_promo(
     return mejor, mejor_ahorro
 
 
-def precios_de_referencia(
-    cotizaciones: dict[str, CotizacionCadena],
-) -> dict[int, float]:
-    """Precio tipico de cada item de la lista, segun las cadenas que lo tienen.
+# Dos cadenas tienen que haber cotizado un producto para que su precio tipico
+# signifique algo.
+MINIMO_PARA_COMPARAR = 2
 
-    Se usa la mediana y no el minimo: el minimo supondria que vas a ir a buscar
-    ese unico producto a la cadena mas barata del pais, que no es lo que pasa en
-    la practica.
+# Que fraccion de la mejor cobertura hay que alcanzar para competir de igual a
+# igual. Una cadena que tiene bastante menos de tu lista puede ser la mas barata
+# en lo que tiene y aun asi no servirte, porque te deja media compra sin hacer.
+COBERTURA_MINIMA = 0.85
+
+
+def indices_de_precio(
+    cotizaciones: dict[str, CotizacionCadena],
+) -> dict[str, tuple[float, int]]:
+    """Cuanto cuesta cada cadena comparada con el precio tipico de cada producto.
+
+    Devuelve, por cadena, (indice, sobre cuantos productos se calculo). Un 0,90
+    quiere decir que producto por producto sale un 10% menos que la media.
+
+    Es lo que permite comparar cadenas que no tienen la misma lista. Los totales
+    crudos no sirven: a la que no tiene dos de tus productos le falta el precio
+    de esos dos, asi que suma menos sin ser mas barata.
     """
     por_item: dict[int, list[float]] = {}
     for cotizacion in cotizaciones.values():
         for indice, linea in enumerate(cotizacion.lineas):
             if linea.encontrado:
                 por_item.setdefault(indice, []).append(linea.subtotal)
-    return {
-        indice: statistics.median(valores) for indice, valores in por_item.items() if valores
+
+    tipicos = {
+        indice: statistics.median(valores)
+        for indice, valores in por_item.items()
+        if len(valores) >= MINIMO_PARA_COMPARAR and statistics.median(valores) > 0
     }
+
+    salida: dict[str, tuple[float, int]] = {}
+    for clave, cotizacion in cotizaciones.items():
+        razones = [
+            linea.subtotal / tipicos[indice]
+            for indice, linea in enumerate(cotizacion.lineas)
+            if linea.encontrado and indice in tipicos
+        ]
+        salida[clave] = (statistics.fmean(razones) if razones else 1.0, len(razones))
+    return salida
 
 
 def evaluar(
@@ -137,15 +163,17 @@ def evaluar(
 ) -> list[Veredicto]:
     """Aplica la mejor promo a cada cadena y las ordena de mas a menos conveniente.
 
-    Las cadenas se comparan sobre la misma canasta. A la que le falta un
-    producto se le suma lo que costaria conseguirlo en otro lado, estimado con
-    el precio tipico de las demas.
+    El orden lo decide el indice de precios, no el total: el total de una cadena
+    a la que le faltan productos es mas bajo sin que sea mas barata, y sumarle lo
+    que costaria conseguirlos en otro lado es inventar un gasto que nadie va a
+    hacer ahi. Nadie reparte una compra entre cinco supermercados: se va al que
+    mas conviene y lo que falte se ve despues.
 
-    Antes esto se resolvia ordenando primero por cobertura, y era peor el
-    remedio: una cadena diez mil pesos mas cara quedaba primera solo por tener
-    un producto mas que las otras.
+    La cobertura no se ignora, pero tampoco manda: una cadena que tiene bastante
+    menos de la lista compite recien despues de las que la cubren, por barata
+    que sea en lo poco que tiene.
     """
-    referencias = precios_de_referencia(cotizaciones)
+    indices = indices_de_precio(cotizaciones)
 
     veredictos: list[Veredicto] = []
     for cotizacion in cotizaciones.values():
@@ -158,29 +186,30 @@ def evaluar(
             total=cotizacion.total,
             preferencias=preferencias,
         )
-        estimado = 0.0
-        faltantes = 0
-        for indice, linea in enumerate(cotizacion.lineas):
-            if linea.encontrado:
-                continue
-            # Un item que ninguna cadena encontro no penaliza a nadie: no es un
-            # faltante de esta cadena, es un producto que la app no supo buscar.
-            if indice not in referencias:
-                continue
-            estimado += referencias[indice]
-            faltantes += 1
-
+        indice, comparables = indices.get(cotizacion.cadena, (1.0, 0))
         veredictos.append(
             Veredicto(
                 cotizacion=cotizacion,
                 promo=promo,
                 ahorro=ahorro,
-                estimado_afuera=estimado,
-                faltantes=faltantes,
+                # El descuento tambien abarata: se aplica al indice en la misma
+                # proporcion en que baja el total.
+                indice=indice * (1 - (ahorro / cotizacion.total if cotizacion.total else 0)),
+                comparables=comparables,
             )
         )
 
-    veredictos.sort(key=lambda v: (v.total_canasta, v.faltantes))
+    if not veredictos:
+        return []
+
+    mejor_cobertura = max(v.cotizacion.encontrados for v in veredictos)
+    piso = mejor_cobertura * COBERTURA_MINIMA
+
+    def orden(veredicto: Veredicto) -> tuple:
+        cubre = 0 if veredicto.cotizacion.encontrados >= piso else 1
+        return (cubre, veredicto.indice, -veredicto.cotizacion.encontrados)
+
+    veredictos.sort(key=orden)
     return veredictos
 
 
@@ -192,9 +221,11 @@ class DiaDelCalendario:
     cadena: str | None
     nombre_cadena: str | None
     promo: Promo | None
-    # Canasta completa, comparable entre dias y entre cadenas: incluye lo que
-    # costaria conseguir afuera lo que esa cadena no tiene.
-    total_canasta: float
+    # Lo que se paga ese dia en la cadena elegida, ya con la promo aplicada.
+    total: float
+    # Precio relativo al tipico de cada producto: es lo que decide que cadena
+    # gana ese dia, igual que en el ranking.
+    indice: float
     ahorro: float
 
     @property
@@ -229,7 +260,8 @@ def calendario(
                     cadena=None,
                     nombre_cadena=None,
                     promo=None,
-                    total_canasta=0.0,
+                    total=0.0,
+                    indice=1.0,
                     ahorro=0.0,
                 )
             )
@@ -241,7 +273,8 @@ def calendario(
                 cadena=ganador.cadena,
                 nombre_cadena=ganador.nombre,
                 promo=ganador.promo,
-                total_canasta=ganador.total_canasta,
+                total=ganador.total_final,
+                indice=ganador.indice,
                 ahorro=ganador.ahorro,
             )
         )

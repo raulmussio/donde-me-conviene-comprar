@@ -190,16 +190,33 @@ El filtro por formato es una preferencia, no una condicion excluyente. Si pedis
 1 kg y una cadena solo vende paquetes de 500 g, se sigue ofreciendo esa cadena
 con dos paquetes en vez de declarar que no tiene el producto.
 
-### 5. Comparar siempre la misma canasta
+### 5. Comparar cadenas que no tienen la misma lista
 
-A una cadena que no tiene un producto se le suma lo que costaria conseguirlo en
-otro lado, estimado con el precio tipico de las cadenas que si lo tienen (la
-mediana, no el minimo: nadie cruza la ciudad por un solo producto).
+Es muy dificil que un supermercado tenga los veintiseis productos de tu lista, y
+los totales crudos no son comparables entre si: a la cadena que no tiene dos de
+ellos le falta el precio de esos dos, asi que suma menos sin ser mas barata.
 
-Antes esto se resolvia ordenando primero por cobertura y era peor el remedio:
-una cadena diez mil pesos mas cara quedaba primera solo por tener un producto
-mas que las otras. Un item que **ninguna** cadena encontro no penaliza a nadie:
-no es un faltante de esa cadena, es algo que la app no supo buscar.
+El primer intento fue sumarle lo que costaria conseguirlos en otro lado, con el
+precio tipico de las demas. Salio mal por dos motivos. El numero que se mostraba
+dejaba de ser lo que se paga en la caja, y podia ser cualquier cosa: con dos
+productos faltantes llegaba a sumar $49.824 de plata que nadie iba a gastar ahi.
+Y sobre todo respondia una pregunta que nadie se hace: nadie reparte una compra
+entre cinco supermercados. Se va al que mas conviene y lo que falte se ve
+despues.
+
+Ahora el orden lo decide un **indice de precios**: para cada producto que
+cotizaron al menos dos cadenas se toma el precio tipico, y el indice de una
+cadena es el promedio de cuanto se aparta de ese tipico. Un 0,90 quiere decir
+que, producto por producto, sale un 10% menos que la media. Una cadena a la que
+le faltan productos simplemente tiene menos terminos en ese promedio, no un
+total mas chico.
+
+El total que se muestra vuelve a ser plata real: lo que sale llevarte de ahi lo
+que esa cadena si tiene.
+
+La cobertura no se ignora, pero tampoco manda: una cadena que tiene bastante
+menos de la lista compite recien despues de las que la cubren, por barata que
+sea en lo poco que tiene.
 
 ### 6. La marca la elegis vos, y fijarla es excluyente
 
