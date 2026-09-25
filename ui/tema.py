@@ -120,6 +120,32 @@ _CSS = f"""
 
   .nota {{ color: {TENUE}; font-size: .85rem; line-height: 1.5; }}
 
+  /* ---------- promociones ---------- */
+  .promo {{
+      background: {PANEL}; border: 1px solid {BORDE}; border-radius: .9rem;
+      padding: .85rem 1rem; margin-bottom: .6rem;
+      box-shadow: 0 1px 2px rgba(16,24,40,.04);
+  }}
+  .promo-cabeza {{
+      display: flex; align-items: center; justify-content: space-between;
+      gap: .8rem; margin-bottom: .25rem;
+  }}
+  .promo-valor {{
+      font-size: 1.55rem; font-weight: 700; color: {VERDE};
+      letter-spacing: -.02em; line-height: 1;
+  }}
+  .promo-entidad {{ font-size: .9rem; font-weight: 550; margin-bottom: .2rem; }}
+  .promo-cuotas {{
+      font-size: .87rem; color: {TENUE}; padding: .3rem 0;
+      border-bottom: 1px solid {BORDE};
+  }}
+  .dia-semana {{
+      padding: .55rem 0; border-bottom: 1px solid {BORDE};
+      display: flex; align-items: center; gap: .5rem; flex-wrap: wrap;
+  }}
+  .dia-semana .dia-nombre {{ min-width: 7.5rem; }}
+  .dia-semana .etiqueta .punto {{ margin-right: .3rem; }}
+
   /* ---------- calendario ---------- */
   .dia-calendario {{
       background: {PANEL}; border: 1px solid {BORDE}; border-radius: .8rem;

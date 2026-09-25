@@ -1002,43 +1002,193 @@ def mostrar_promociones(
     cadenas: list[str],
     preferencias: Preferencias,
     hoy: dt.date,
+    totales: dict[str, float],
 ) -> None:
-    """Listado de promociones vigentes, con las de hoy primero."""
-    filas: list[dict] = []
-    for clave in cadenas:
-        for promo in promos:
-            if promo.cadena != clave or not _pasa_filtro(promo, preferencias):
-                continue
-            if promo.porcentaje:
-                descuento = f"{promo.porcentaje:g}%"
-            elif promo.cuotas:
-                descuento = f"{promo.cuotas} cuotas"
-            else:
-                descuento = "-"
-            filas.append(
-                {
-                    "Cadena": CADENAS[clave].nombre,
-                    "Hoy": "si" if promo.vigente_el(hoy) else "",
-                    "Dias": ", ".join(DIAS_SEMANA[d][:3] for d in sorted(promo.dias)),
-                    "Descuento": descuento,
-                    "Tope": pesos(promo.tope) if promo.tope else "sin tope",
-                    "Entidad": ", ".join(nombre_entidad(b) for b in promo.bancos)
-                    or "-",
-                    "Promocion": promo.titulo,
-                }
-            )
+    """Las promociones que te sirven, empezando por las de hoy.
 
-    if not filas:
+    Antes era una tabla de siete columnas. En el telefono se leia de costado y
+    en cualquier pantalla obligaba a cruzar a mano el porcentaje con el tope y
+    con el banco para saber si convenia. Ahora cada promocion es una tarjeta y,
+    como se conoce el total de la lista en cada cadena, dice directamente cuanto
+    te ahorrarias con ella.
+    """
+    aplicables = [
+        promo
+        for promo in promos
+        if promo.cadena in cadenas and _pasa_filtro(promo, preferencias)
+    ]
+    if not aplicables:
         st.info(
             "No hay promociones que coincidan con los medios de pago elegidos. "
-            "Proba agregando bancos en la barra lateral."
+            "Volvé al paso de medios de pago y agregá tus bancos."
         )
         return
 
-    tabla = pd.DataFrame(filas).sort_values(
-        ["Hoy", "Cadena", "Descuento"], ascending=[False, True, False]
+    de_hoy = [promo for promo in aplicables if promo.vigente_el(hoy)]
+    todos = sorted(
+        (promo for promo in de_hoy if promo.porcentaje),
+        key=lambda promo: -promo.ahorro_sobre(totales.get(promo.cadena, 0.0)),
     )
-    st.dataframe(tabla, width="stretch", hide_index=True)
+    # Una por cadena: las promociones bancarias no se acumulan, se paga con un
+    # medio y se obtiene un beneficio. Mostrar las cuatro de una misma cadena
+    # sugiere que se suman, y ademas repite la misma linea cuando cambia solo el
+    # banco. Se queda la que mas ahorra, que es la que se usaria.
+    descuentos: list[Promo] = []
+    vistas: set[str] = set()
+    for promo in todos:
+        if promo.cadena in vistas:
+            continue
+        vistas.add(promo.cadena)
+        descuentos.append(promo)
+    cuotas = [promo for promo in de_hoy if not promo.porcentaje and promo.cuotas]
+
+    tema.titulo("Hoy", f"{DIAS_SEMANA[hoy.weekday()]} {hoy:%d/%m}")
+    if descuentos:
+        for promo in descuentos:
+            _tarjeta_promo(promo, totales.get(promo.cadena, 0.0))
+        sobran = len(todos) - len(descuentos)
+        if sobran:
+            with st.expander(f"Ver las otras {sobran} promociones de hoy"):
+                st.markdown(
+                    '<div class="nota">Solo se puede usar una por cadena, asi que '
+                    "arriba esta la que mas te conviene de cada una.</div>",
+                    unsafe_allow_html=True,
+                )
+                for promo in todos:
+                    if promo in descuentos:
+                        continue
+                    ahorro = promo.ahorro_sobre(totales.get(promo.cadena, 0.0))
+                    st.markdown(
+                        f'<div class="promo-cuotas">'
+                        f'<span class="punto" style="background:'
+                        f'{tema.color_de(promo.cadena)}"></span>'
+                        f"{CADENAS[promo.cadena].nombre} &middot; "
+                        f"<b>{promo.porcentaje:g}%</b> &middot; "
+                        f"{_entidades_de_promo(promo)} &middot; "
+                        f"{pesos(ahorro)}</div>",
+                        unsafe_allow_html=True,
+                    )
+    else:
+        st.markdown(
+            '<div class="vacio">Hoy no hay descuentos con los medios de pago que '
+            "elegiste. Mirá <b>Próximos 7 días</b> para ver cuándo sí.</div>",
+            unsafe_allow_html=True,
+        )
+
+    if cuotas:
+        st.markdown("")
+        st.markdown(
+            '<div class="nota"><b>Además, cuotas sin interés hoy</b> '
+            "(no bajan el precio, lo reparten)</div>",
+            unsafe_allow_html=True,
+        )
+        for promo in sorted(cuotas, key=lambda p: -(p.cuotas or 0)):
+            st.markdown(
+                f'<div class="promo-cuotas">'
+                f'<span class="punto" style="background:{tema.color_de(promo.cadena)}">'
+                f"</span>{CADENAS[promo.cadena].nombre} &middot; "
+                f"<b>{promo.cuotas} cuotas</b> &middot; "
+                f"{_entidades_de_promo(promo)}</div>",
+                unsafe_allow_html=True,
+            )
+
+    _promociones_de_la_semana(aplicables, hoy, totales)
+
+
+def _tarjeta_promo(promo: Promo, total: float) -> None:
+    """Una promocion, con lo que te ahorraria en tu lista."""
+    ahorro = promo.ahorro_sobre(total)
+    color = tema.color_de(promo.cadena)
+
+    detalle = [f"{_dias_de(promo)}"]
+    detalle.append(f"tope {pesos(promo.tope)}" if promo.tope else "sin tope")
+    if promo.requiere_modo:
+        detalle.append("hay que pagar con MODO")
+
+    linea_ahorro = (
+        f'<div class="ahorro">Te ahorrás {pesos(ahorro)} en tu lista</div>'
+        if ahorro > 0
+        else '<div class="nota">No aplica a tu lista de hoy.</div>'
+    )
+
+    st.markdown(
+        f'<div class="promo">'
+        f'<div class="promo-cabeza">'
+        f'<span class="nombre-cadena">'
+        f'<span class="punto" style="background:{color}"></span>'
+        f"{CADENAS[promo.cadena].nombre}</span>"
+        f'<span class="promo-valor">{promo.porcentaje:g}%</span>'
+        f"</div>"
+        f'<div class="promo-entidad">{_entidades_de_promo(promo)}</div>'
+        f"{linea_ahorro}"
+        f'<div class="nota">{" &middot; ".join(detalle)}</div>'
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def _promociones_de_la_semana(
+    aplicables: list[Promo], hoy: dt.date, totales: dict[str, float]
+) -> None:
+    """Que descuentos hay los proximos dias, para saber si conviene esperar."""
+    filas: list[str] = []
+    for desplazamiento in range(1, 7):
+        fecha = hoy + dt.timedelta(days=desplazamiento)
+        ordenadas = sorted(
+            (
+                promo
+                for promo in aplicables
+                if promo.porcentaje and promo.vigente_el(fecha)
+            ),
+            key=lambda promo: -promo.ahorro_sobre(totales.get(promo.cadena, 0.0)),
+        )
+        # Igual que en "Hoy": una por cadena, porque es una la que se puede usar.
+        delfdia: list[Promo] = []
+        vistas_dia: set[str] = set()
+        for promo in ordenadas:
+            if promo.cadena in vistas_dia:
+                continue
+            vistas_dia.add(promo.cadena)
+            delfdia.append(promo)
+        if not delfdia:
+            continue
+        mejores = delfdia[:3]
+        piezas = " ".join(
+            f'<span class="etiqueta">'
+            f'<span class="punto" style="background:{tema.color_de(promo.cadena)}">'
+            f"</span>{CADENAS[promo.cadena].nombre} {promo.porcentaje:g}%</span>"
+            for promo in mejores
+        )
+        sobran = len(delfdia) - len(mejores)
+        if sobran:
+            piezas += f' <span class="nota">y {sobran} más</span>'
+        filas.append(
+            f'<div class="dia-semana"><div class="dia-nombre">'
+            f"{DIAS_SEMANA[fecha.weekday()]} {fecha:%d/%m}</div>{piezas}</div>"
+        )
+
+    if not filas:
+        return
+    st.markdown("")
+    tema.titulo("El resto de la semana", "con los mismos medios de pago")
+    st.markdown("".join(filas), unsafe_allow_html=True)
+
+
+def _entidades_de_promo(promo: Promo) -> str:
+    """Con que se paga para que la promocion valga."""
+    if not promo.bancos:
+        return "Sin banco identificado"
+    return " · ".join(nombre_entidad(clave) for clave in promo.bancos)
+
+
+def _dias_de(promo: Promo) -> str:
+    """Los dias en que corre, escritos como se dicen."""
+    if len(promo.dias) == 7:
+        return "todos los días"
+    nombres = [DIAS_SEMANA[dia][:3] for dia in sorted(promo.dias)]
+    if len(nombres) == 1:
+        return f"solo {nombres[0]}"
+    return ", ".join(nombres[:-1]) + f" y {nombres[-1]}"
 
 
 def _pasa_filtro(promo: Promo, preferencias: Preferencias) -> bool:
@@ -1108,13 +1258,22 @@ def paso_resultados(promos: list[Promo], fallos: dict[str, str]) -> None:
     mostrar_ranking(veredictos, total_items=len(resultado.items))
 
     pestanas = st.tabs(
-        ["Detalle por producto", "Próximos 7 días", "Promociones vigentes"]
+        ["Promociones", "Detalle por producto", "Próximos 7 días"]
     )
 
     with pestanas[0]:
-        tabla_por_producto(resultado)
+        mostrar_promociones(
+            promos,
+            resultado.cadenas,
+            preferencias,
+            hoy,
+            {clave: cot.total for clave, cot in resultado.cotizaciones.items()},
+        )
 
     with pestanas[1]:
+        tabla_por_producto(resultado)
+
+    with pestanas[2]:
         tema.titulo("Qué día conviene comprar", "con los precios de hoy")
         st.markdown(
             '<div class="nota">Los precios son los de ahora: lo que cambia día a '
@@ -1128,10 +1287,6 @@ def paso_resultados(promos: list[Promo], fallos: dict[str, str]) -> None:
             ),
             hoy,
         )
-
-    with pestanas[2]:
-        tema.titulo("Promociones vigentes", "filtradas por tus medios de pago")
-        mostrar_promociones(promos, resultado.cadenas, preferencias, hoy)
 
     st.markdown("")
     st.markdown('<div class="navegacion">', unsafe_allow_html=True)

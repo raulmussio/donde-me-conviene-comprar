@@ -396,7 +396,9 @@ tomarlo haria parecer a Coto sistematicamente mas barato de lo que es.
 
 - **Solo una promo por cadena.** Las promociones bancarias de supermercado no se
   acumulan: se paga con un medio y se obtiene un beneficio. La app elige la que
-  mas ahorra.
+  mas ahorra, y la pantalla lo respeta: muestra una tarjeta por cadena y deja el
+  resto en un desplegable. Listarlas todas sugiere que se suman, y ademas repite
+  la misma linea cuando lo unico que cambia es el banco.
 - **Gana la que mas ahorra, no la del porcentaje mas alto.** Un 30% con tope de
   $10.000 ahorra menos que un 15% sin tope en una compra de $120.000.
 - **MODO no es un banco.** Una promo de "40% con Credicoop a traves de MODO"
