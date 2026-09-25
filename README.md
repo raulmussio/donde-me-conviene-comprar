@@ -443,11 +443,11 @@ el codigo de un repositorio de GitHub.
 
    ```bash
    git remote add origin https://github.com/USUARIO/REPO.git
-   git push -u origin master
+   git push -u origin main
    ```
 
 3. Entra a [share.streamlit.io](https://share.streamlit.io), iniciá sesión con
-   GitHub y elegí **New app**. Repositorio, rama `master`, archivo `app.py`.
+   GitHub y elegí **New app**. Repositorio, rama `main`, archivo `app.py`.
    En *Advanced settings* elegí **Python 3.11 o superior**: el codigo usa
    anotaciones que no existen antes de 3.10.
 4. Sale una URL del estilo `tu-app.streamlit.app` para pasar por donde sea.
