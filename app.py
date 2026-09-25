@@ -280,6 +280,9 @@ def _selector_de_categoria(seleccion: dict[str, int]):
         options=[categoria.clave for categoria in CATEGORIAS],
         format_func=lambda clave: _etiqueta_categoria(clave, seleccion),
         key="categoria_activa",
+        # Sin buscador: es una lista cerrada de trece. Con el buscador puesto,
+        # en el telefono cada toque abre el teclado y tapa media pantalla.
+        filter_mode=None,
     )
     return CATEGORIA_POR_CLAVE.get(
         st.session_state.get("categoria_activa", CATEGORIAS[0].clave), CATEGORIAS[0]
@@ -782,6 +785,7 @@ def _selector_de_marca(resultado: Resultado, indice: int) -> None:
         options=etiquetas,
         key=clave,
         label_visibility="collapsed",
+        filter_mode=None,
     )
 
 
@@ -804,6 +808,7 @@ def _selector_de_envase(resultado: Resultado, indice: int) -> None:
         options=etiquetas,
         key=clave,
         label_visibility="collapsed",
+        filter_mode=None,
     )
 
 
