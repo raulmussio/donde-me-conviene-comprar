@@ -180,12 +180,17 @@ def _volver_al_tope() -> None:
 
     Solo se dispara al cambiar de paso: hacerlo en cada pasada devolveria al
     tope cada vez que se toca un selector.
+
+    Usa `components.html` y no `st.html`, que es su reemplazo moderno, porque
+    `st.html` inserta el `<script>` en el documento pero no lo ejecuta ni con
+    `unsafe_allow_javascript`: el tag queda en el DOM y no pasa nada. El iframe
+    de `components.html` si lo corre.
     """
     actual = st.session_state.get("paso", "productos")
     if st.session_state.get("_paso_mostrado") == actual:
         return
     st.session_state["_paso_mostrado"] = actual
-    # El token hace que el componente cambie de contenido y Streamlit vuelva a
+    # El token hace que el bloque cambie de contenido y Streamlit vuelva a
     # montarlo; con un HTML identico no volveria a ejecutar el script.
     token = st.session_state.get("_saltos", 0) + 1
     st.session_state["_saltos"] = token
